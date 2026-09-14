@@ -1,0 +1,10 @@
+project_id = "calisthenics-academy-tracker"
+
+[functions.daily-demo-report]
+verify_jwt = false
+
+[functions.weekly-expired-report]
+verify_jwt = false
+
+[functions.create-trainer]
+verify_jwt = true

@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-base-900 text-white font-sans antialiased;
+    background-image: radial-gradient(circle at 20% -10%, rgba(140, 255, 60, 0.06), transparent 40%);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-tight;
+  }
+
+  ::selection {
+    @apply bg-accent-green/30 text-white;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-base-800 border border-base-600 rounded-xl;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-colors
+      px-4 py-2.5 text-sm select-none disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-primary {
+    @apply btn bg-accent-green text-base-900 hover:bg-accent-green-dim shadow-glow;
+  }
+
+  .btn-secondary {
+    @apply btn bg-base-600 text-white hover:bg-base-500 border border-base-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-status-expired/90 text-base-900 hover:bg-status-expired;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-white/80 hover:bg-base-700 hover:text-white;
+  }
+
+  .input {
+    @apply w-full rounded-lg bg-base-700 border border-base-500 px-3.5 py-2.5 text-sm text-white
+      placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-accent-green/60 focus:border-accent-green/60;
+  }
+
+  .label {
+    @apply text-xs font-semibold uppercase tracking-wide text-white/50 mb-1.5 block;
+  }
+
+  .table-shell {
+    @apply w-full text-sm font-mono;
+  }
+
+  .table-shell th {
+    @apply text-left text-xs uppercase tracking-wide text-white/40 font-semibold px-4 py-3 border-b border-base-600;
+  }
+
+  .table-shell td {
+    @apply px-4 py-3 border-b border-base-700;
+  }
+}
