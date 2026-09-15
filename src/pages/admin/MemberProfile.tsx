@@ -11,6 +11,7 @@ export function MemberProfile() {
   const { memberId } = useParams<{ memberId: string }>();
   const queryClient = useQueryClient();
   const [showRenew, setShowRenew] = useState(false);
+  const [showBatchAssign, setShowBatchAssign] = useState(false);
 
   const { data: member, isLoading } = useQuery({
     queryKey: ["member", memberId],
@@ -72,18 +73,21 @@ export function MemberProfile() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="card p-5">
-          <h2 className="mb-3 font-bold">Batches</h2>
+          <h2 className="mb-3 font-bold">Batch</h2>
           {member.member_batches?.length > 0 ? (
-            <ul className="space-y-1 text-sm">
-              {member.member_batches.map((mb: any, i: number) => (
-                <li key={i} className="text-white/80">
-                  {mb.batch?.name} · <span className="text-white/40">{mb.batch?.time_slot}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="text-sm text-white/80">
+              {member.member_batches[0]?.batch?.name}
+              <span className="ml-2 text-white/40">{member.member_batches[0]?.batch?.time_slot}</span>
+            </div>
           ) : (
-            <p className="text-sm text-white/40">Not assigned to any regular batch.</p>
+            <p className="text-sm text-white/40">Not assigned to any batch.</p>
           )}
+          <button
+            className="btn-secondary mt-3 text-xs"
+            onClick={() => setShowBatchAssign(true)}
+          >
+            {member.member_batches?.length > 0 ? "Change Batch" : "+ Assign Batch"}
+          </button>
         </div>
         <div className="card p-5">
           <h2 className="mb-3 font-bold">Personal Training</h2>
@@ -144,6 +148,18 @@ export function MemberProfile() {
           }}
         />
       )}
+
+      {showBatchAssign && (
+        <BatchAssignModal
+          member={member}
+          onClose={() => setShowBatchAssign(false)}
+          onAssigned={() => {
+            setShowBatchAssign(false);
+            queryClient.invalidateQueries({ queryKey: ["member", memberId] });
+            queryClient.invalidateQueries({ queryKey: ["all-members"] });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -188,6 +204,96 @@ function RenewModal({ member, onClose, onRenewed }: { member: any; onClose: () =
         <button className="btn-primary w-full" onClick={handleRenew} disabled={saving}>
           {saving ? "Renewing…" : "Confirm Renewal"}
         </button>
+      </div>
+    </Modal>
+  );
+}
+
+function BatchAssignModal({
+  member,
+  onClose,
+  onAssigned,
+}: {
+  member: any;
+  onClose: () => void;
+  onAssigned: () => void;
+}) {
+  const currentBatchId = member.member_batches?.[0]?.batch?.id ?? "";
+  const [batches, setBatches] = useState<any[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState(currentBatchId);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const assignedBatchIds = new Set<string>(
+    (member.member_batches ?? []).map((mb: any) => mb.batch?.id).filter(Boolean)
+  );
+
+  useState(() => {
+    supabase
+      .from("batches")
+      .select("id, name, time_slot, days")
+      .eq("status", "active")
+      .order("name")
+      .then(({ data }) => {
+        setBatches(data ?? []);
+        if (!selectedBatchId && data && data.length > 0) setSelectedBatchId(data[0].id);
+      });
+  });
+
+  async function handleAssign() {
+    if (!selectedBatchId) return;
+    setSaving(true);
+    setError(null);
+    try {
+      // Remove existing batch assignment first
+      await supabase
+        .from("member_batches")
+        .delete()
+        .eq("member_id", member.id);
+
+      const { error } = await supabase
+        .from("member_batches")
+        .insert({ member_id: member.id, batch_id: selectedBatchId });
+      if (error) throw error;
+      onAssigned();
+    } catch (e: any) {
+      setError(e.message ?? "Failed to assign batch.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`Assign Batch — ${member.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        {batches.length === 0 ? (
+          <p className="text-sm text-white/40">No available batches to assign.</p>
+        ) : (
+          <>
+            <div>
+              <label className="label">Batch</label>
+              <select
+                className="input"
+                value={selectedBatchId}
+                onChange={(e) => setSelectedBatchId(e.target.value)}
+              >
+                {batches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} · {b.time_slot} ({b.days})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {error && <p className="text-sm text-status-expired">{error}</p>}
+            <button
+              className="btn-primary w-full"
+              onClick={handleAssign}
+              disabled={saving || !selectedBatchId}
+            >
+              {saving ? "Assigning…" : "Assign Batch"}
+            </button>
+          </>
+        )}
       </div>
     </Modal>
   );

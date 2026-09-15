@@ -151,15 +151,6 @@ function AddMemberModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function toggleBatch(id: string) {
-    setSelectedBatches((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
   async function handleSubmit() {
     if (!name.trim() || !phone.trim()) {
       setError("Name and phone are required.");
@@ -215,15 +206,19 @@ function AddMemberModal({
           </div>
         </div>
         <div>
-          <label className="label">Assign Batches</label>
-          <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-base-600 p-2">
-            {batches.map((b) => (
-              <label key={b.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-base-700">
-                <input type="checkbox" checked={selectedBatches.has(b.id)} onChange={() => toggleBatch(b.id)} />
-                {b.name}
-              </label>
+          <label className="label">Assign Batch</label>
+          <select
+            className="input"
+            value={selectedBatches.size > 0 ? Array.from(selectedBatches)[0] : ""}
+            onChange={(e) => setSelectedBatches(e.target.value ? new Set([e.target.value]) : new Set())}
+          >
+            <option value="">— None —</option>
+            {batches.filter((b) => b.status === "active").map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name} · {b.time_slot} ({b.days})
+              </option>
             ))}
-          </div>
+          </select>
         </div>
 
         {error && <p className="text-sm text-status-expired">{error}</p>}

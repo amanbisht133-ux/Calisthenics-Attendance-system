@@ -72,26 +72,12 @@ create policy "members_trainer_select"
   on public.members for select
   using (
     public.is_admin()
-    or exists (
-      select 1 from public.member_batches mb
-      join public.trainer_batches tb on tb.batch_id = mb.batch_id
-      where mb.member_id = members.id and tb.trainer_id = auth.uid()
-    )
-    or exists (
-      select 1 from public.pt_clients pc
-      where pc.member_id = members.id and pc.trainer_id = auth.uid()
-    )
+    or auth.uid() is not null
   );
 
 create policy "member_batches_select"
   on public.member_batches for select
-  using (
-    public.is_admin()
-    or exists (
-      select 1 from public.trainer_batches tb
-      where tb.batch_id = member_batches.batch_id and tb.trainer_id = auth.uid()
-    )
-  );
+  using (auth.uid() is not null);
 create policy "member_batches_admin_write" on public.member_batches for insert with check (public.is_admin());
 create policy "member_batches_admin_delete" on public.member_batches for delete using (public.is_admin());
 
@@ -116,10 +102,6 @@ create policy "attendance_records_trainer_insert"
   on public.attendance_records for insert
   with check (
     trainer_id = auth.uid()
-    and exists (
-      select 1 from public.trainer_batches tb
-      where tb.batch_id = attendance_records.batch_id and tb.trainer_id = auth.uid()
-    )
   );
 
 create policy "attendance_entries_select"
