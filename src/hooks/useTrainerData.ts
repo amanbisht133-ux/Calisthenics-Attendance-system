@@ -3,17 +3,53 @@ import { supabase } from "@/lib/supabaseClient";
 import type { Batch, MemberWithStatus, PTClient } from "@/lib/database.types";
 import { memberStatus, todayISO } from "@/lib/utils";
 
-export function useTrainerBatches(trainerId: string | undefined) {
+export function useTrainerBatches(_trainerId: string | undefined) {
   return useQuery({
-    queryKey: ["trainer-batches", trainerId],
-    enabled: !!trainerId,
+    queryKey: ["trainer-batches-all"],
+    enabled: true,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("trainer_batches")
-        .select("batch:batches(*)")
-        .eq("trainer_id", trainerId);
+        .from("batches")
+        .select("*")
+        .order("name");
       if (error) throw error;
-      return (data ?? []).map((row: any) => row.batch as Batch).filter(Boolean);
+      return (data ?? []) as Batch[];
+    },
+  });
+}
+
+export function useAllBatches() {
+  return useQuery({
+    queryKey: ["all-batches"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("batches")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as Batch[];
+    },
+  });
+}
+
+export function useAllMembers() {
+  return useQuery({
+    queryKey: ["all-members"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("members")
+        .select("*, member_batches(batch_id)")
+        .order("name");
+      if (error) throw error;
+      const members = (data ?? []) as (import("@/lib/database.types").Member & {
+        member_batches: { batch_id: string }[];
+      })[];
+      return members.map((m) => ({
+        ...m,
+        status: memberStatus(m.expiry_date),
+        // first assigned batch id, or null if unassigned
+        batchId: m.member_batches?.[0]?.batch_id ?? null,
+      }));
     },
   });
 }

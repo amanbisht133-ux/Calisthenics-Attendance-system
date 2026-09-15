@@ -8,6 +8,7 @@ import { Login } from "@/pages/Login";
 import { TrainerDashboard } from "@/pages/trainer/TrainerDashboard";
 import { BatchAttendance } from "@/pages/trainer/BatchAttendance";
 import { PTSessions } from "@/pages/trainer/PTSessions";
+import { AllMembersAttendance } from "@/pages/trainer/AllMembersAttendance";
 
 import { AdminOverview } from "@/pages/admin/AdminOverview";
 import { Members } from "@/pages/admin/Members";
@@ -38,6 +39,7 @@ export default function App() {
         <Route element={<TrainerLayout />}>
           <Route path="/trainer" element={<TrainerDashboard />} />
           <Route path="/trainer/batch/:batchId" element={<BatchAttendance />} />
+          <Route path="/trainer/attendance" element={<AllMembersAttendance />} />
           <Route path="/trainer/pt" element={<PTSessions />} />
         </Route>
       </Route>
