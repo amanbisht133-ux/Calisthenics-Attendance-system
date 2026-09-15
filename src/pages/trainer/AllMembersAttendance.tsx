@@ -1,23 +1,18 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useAuth } from "@/context/AuthContext";
-import { useAllMembers } from "@/hooks/useTrainerData";
+import { useAllMembers, useTodayAllAttendance } from "@/hooks/useTrainerData";
 import { supabase } from "@/lib/supabaseClient";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { todayISO, formatDate } from "@/lib/utils";
-import type { MemberWithStatus } from "@/lib/database.types";
 
-const SYNC_INTERVAL_MS = 30_000;
-
-type MemberWithBatch = MemberWithStatus & {
-  batchId: string | null;
-  member_batches: { batch_id: string }[];
-};
-
-// Returns record id for (trainer, batch, date) — creates one if missing
-async function getOrCreateRecord(trainerId: string, batchId: string): Promise<string> {
+// Gets or creates an attendance_record for (trainer, batch, today)
+async function getOrCreateRecord(
+  trainerId: string,
+  batchId: string
+): Promise<string> {
   const { data: existing } = await supabase
     .from("attendance_records")
     .select("id")
@@ -36,244 +31,268 @@ async function getOrCreateRecord(trainerId: string, batchId: string): Promise<st
   return created.id;
 }
 
+type AllMember = NonNullable<ReturnType<typeof useAllMembers>["data"]>[number];
+
 export function AllMembersAttendance() {
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: members, isLoading: membersLoading } = useAllMembers();
-
-  // IDs already saved in DB for today (across all batches for this trainer)
-  const { data: savedIds = new Set<string>(), isLoading: savedLoading } = useQuery({
-    queryKey: ["all-attendance-today", profile?.id],
-    enabled: !!profile?.id,
-    queryFn: async () => {
-      const { data: records } = await supabase
-        .from("attendance_records")
-        .select("id, entries:attendance_entries(member_id)")
-        .eq("trainer_id", profile!.id)
-        .eq("session_date", todayISO());
-
-      if (!records || records.length === 0) return new Set<string>();
-
-      const ids = new Set<string>();
-      for (const rec of records) {
-        for (const entry of rec.entries ?? []) {
-          ids.add((entry as any).member_id);
-        }
-      }
-      return ids;
-    },
-  });
+  const { data: todayAttendance, isLoading: attendanceLoading } =
+    useTodayAllAttendance(profile?.id);
 
   const [search, setSearch] = useState("");
-  const [presentIds, setPresentIds] = useState<Set<string>>(new Set());
-  // Map memberId -> batchId so flush knows where to write
-  const pendingRef = useRef<Map<string, string>>(new Map());
+  const [filter, setFilter] = useState<"all" | "present" | "absent" | "unmarked">("all");
+  const [saving, setSaving] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [justSaved, setJustSaved] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toggleAttendance = useCallback(
+    async (member: AllMember) => {
+      if (!profile?.id) return;
 
-  const flush = useCallback(async () => {
-    if (!profile?.id) return;
+      const entries = todayAttendance?.get(member.id) ?? [];
+      const existing = entries[0] ?? null; // use first/most recent entry
 
-    // Only flush members not yet saved
-    const toFlush = Array.from(pendingRef.current.entries()).filter(
-      ([id]) => !savedIds.has(id)
-    );
-    if (toFlush.length === 0) {
-      pendingRef.current.clear();
-      return;
-    }
+      setSaving((prev) => new Set(prev).add(member.id));
+      setError(null);
 
-    setSyncing(true);
-    setSyncError(null);
+      try {
+        if (existing) {
+          // Toggle existing entry (present ↔ absent)
+          await supabase
+            .from("attendance_entries")
+            .update({ present: !existing.present })
+            .eq("id", existing.entryId);
+        } else {
+          // Need a batch to file the entry under — use member's primary batch
+          const batchId = (member as any).batchId as string | null;
+          if (!batchId) {
+            setError(
+              `${member.name} has no batch assigned. Use Today's Session to mark them.`
+            );
+            return;
+          }
+          const recordId = await getOrCreateRecord(profile.id, batchId);
+          await supabase.from("attendance_entries").insert({
+            attendance_record_id: recordId,
+            member_id: member.id,
+            present: true,
+          });
+        }
 
-    try {
-      // Group by batchId — one record insert per batch
-      const byBatch = new Map<string, string[]>();
-      for (const [memberId, batchId] of toFlush) {
-        if (!byBatch.has(batchId)) byBatch.set(batchId, []);
-        byBatch.get(batchId)!.push(memberId);
+        await queryClient.invalidateQueries({
+          queryKey: ["today-all-attendance", profile.id],
+        });
+      } catch (e: any) {
+        setError(e.message ?? "Failed to save. Try again.");
+      } finally {
+        setSaving((prev) => {
+          const next = new Set(prev);
+          next.delete(member.id);
+          return next;
+        });
       }
+    },
+    [profile?.id, todayAttendance, queryClient]
+  );
 
-      for (const [batchId, memberIds] of byBatch) {
-        const recordId = await getOrCreateRecord(profile.id, batchId);
-        const entries = memberIds.map((member_id) => ({
-          attendance_record_id: recordId,
-          member_id,
-          present: true,
-        }));
-        const { error } = await supabase.from("attendance_entries").insert(entries);
-        if (error) throw error;
-      }
+  const isLoading = membersLoading || attendanceLoading;
+  const allMembers = members ?? [];
 
-      // Clear flushed entries
-      for (const [id] of toFlush) pendingRef.current.delete(id);
+  // Stats
+  const totalPresent = Array.from(todayAttendance?.values() ?? []).filter((e) =>
+    e.some((x) => x.present)
+  ).length;
+  const totalAbsent = Array.from(todayAttendance?.values() ?? []).filter((e) =>
+    e.every((x) => !x.present)
+  ).length;
+  const totalMarked = todayAttendance?.size ?? 0;
 
-      await queryClient.invalidateQueries({
-        queryKey: ["all-attendance-today", profile.id],
-      });
-
-      setJustSaved(true);
-      setTimeout(() => setJustSaved(false), 2500);
-    } catch (e: any) {
-      setSyncError(e.message ?? "Sync failed. Will retry.");
-    } finally {
-      setSyncing(false);
-    }
-  }, [profile?.id, savedIds, queryClient]);
-
-  // Auto-sync every 30s
-  useEffect(() => {
-    const interval = setInterval(flush, SYNC_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [flush]);
-
-  // Flush on unmount
-  useEffect(() => () => { flush(); }, []); // eslint-disable-line
-
-  function toggle(member: MemberWithBatch) {
-    if (savedIds.has(member.id)) return;
-
-    if (!member.batchId) {
-      // Member has no batch assigned — can't record attendance
-      return;
-    }
-
-    setPresentIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(member.id)) {
-        next.delete(member.id);
-        pendingRef.current.delete(member.id);
-      } else {
-        next.add(member.id);
-        pendingRef.current.set(member.id, member.batchId!);
-      }
-      return next;
-    });
-
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(flush, 3000);
-  }
-
-  const filtered = ((members ?? []) as MemberWithBatch[]).filter((m) => {
+  // Filter + search
+  const filtered = allMembers.filter((m) => {
     const q = search.toLowerCase().trim();
-    if (!q) return true;
-    return m.name.toLowerCase().includes(q) || m.phone.toLowerCase().includes(q);
-  });
+    const matchSearch =
+      !q ||
+      m.name.toLowerCase().includes(q) ||
+      m.phone.toLowerCase().includes(q);
 
-  const pendingCount = Array.from(presentIds).filter((id) => !savedIds.has(id)).length;
+    if (!matchSearch) return false;
+
+    if (filter === "all") return true;
+    const entries = todayAttendance?.get(m.id) ?? [];
+    if (filter === "present") return entries.some((e) => e.present);
+    if (filter === "absent") return entries.length > 0 && entries.every((e) => !e.present);
+    if (filter === "unmarked") return entries.length === 0;
+    return true;
+  });
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Attendance</h1>
+        <h1 className="text-2xl font-bold">All Members</h1>
         <p className="text-sm text-white/50">
           {formatDate(todayISO(), "EEEE, dd MMM yyyy")}
         </p>
-        {savedIds.size > 0 && (
-          <p className="mt-1 text-xs text-accent-green">
-            ✓ {savedIds.size} member{savedIds.size !== 1 ? "s" : ""} already saved today
-          </p>
-        )}
       </div>
+
+      {/* Stats strip */}
+      {!isLoading && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="card p-3 text-center">
+            <div className="text-xl font-bold text-accent-green">{totalPresent}</div>
+            <div className="text-xs text-white/40">Present</div>
+          </div>
+          <div className="card p-3 text-center">
+            <div className="text-xl font-bold text-status-expired">{totalAbsent}</div>
+            <div className="text-xs text-white/40">Absent</div>
+          </div>
+          <div className="card p-3 text-center">
+            <div className="text-xl font-bold text-white/60">
+              {allMembers.length - totalMarked}
+            </div>
+            <div className="text-xs text-white/40">Unmarked</div>
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <SearchBar value={search} onChange={setSearch} placeholder="Search by name or phone…" />
 
+      {/* Filter pills */}
+      <div className="flex gap-2">
+        {(["all", "present", "absent", "unmarked"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={clsx(
+              "rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors",
+              filter === f
+                ? "bg-accent-green text-base-900"
+                : "border border-base-500 bg-base-800 text-white/50 hover:text-white"
+            )}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-lg border border-status-expired/40 bg-status-expired/10 px-3 py-2 text-sm text-status-expired">
+          ⚠ {error}
+          <button className="ml-2 text-white/60" onClick={() => setError(null)}>
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Member list */}
-      {membersLoading || savedLoading ? (
+      {isLoading ? (
         <p className="text-white/50">Loading members…</p>
       ) : (
         <div className="card divide-y divide-base-700">
           {filtered.length === 0 && (
             <div className="px-4 py-8 text-center text-white/40">
-              No members match "{search}"
+              {search ? `No members match "${search}"` : "No members in this filter."}
             </div>
           )}
 
           {filtered.map((member) => {
-            const m = member as MemberWithBatch;
-            const isSaved = savedIds.has(m.id);
-            const isPending = presentIds.has(m.id);
-            const isPresent = isSaved || isPending;
-            const noBatch = !m.batchId;
+            const entries = todayAttendance?.get(member.id) ?? [];
+            const entry = entries[0] ?? null;
+            const isSaving = saving.has(member.id);
+            const isPresent = entry?.present === true;
+            const isAbsent = entry !== null && entry.present === false;
+            const isUnmarked = entry === null;
+            const noBatch = !(member as any).batchId && isUnmarked;
 
             return (
               <div
-                key={m.id}
+                key={member.id}
                 className={clsx(
                   "flex items-center gap-3 px-4 py-3 transition-colors",
                   isPresent && "bg-accent-green/5",
-                  m.status === "expired" && !isPresent && "bg-status-expired/5"
+                  isAbsent && "bg-status-expired/5"
                 )}
               >
-                {/* Info */}
+                {/* Left: info */}
                 <div className="min-w-0 flex-1">
                   <div
                     className={clsx(
                       "truncate font-semibold",
-                      m.status === "expired" && !isPresent && "text-status-expired"
+                      member.status === "expired" &&
+                        !isPresent &&
+                        "text-status-expired"
                     )}
                   >
-                    {m.status === "expired" && !isPresent && "⚠️ "}
-                    {m.name}
+                    {member.status === "expired" && !isPresent && "⚠️ "}
+                    {member.name}
                   </div>
-                  <div className="text-xs text-white/40">{m.phone}</div>
+                  <div className="text-xs text-white/40">{member.phone}</div>
                   {noBatch && (
-                    <div className="text-xs text-yellow-500/70">No batch assigned</div>
+                    <div className="text-xs text-yellow-500/70">
+                      No batch — use Today's Session to mark
+                    </div>
                   )}
                 </div>
 
-                {!isPresent && <StatusBadge status={m.status} />}
+                {/* Membership status badge */}
+                <StatusBadge status={member.status} />
 
-                <button
-                  onClick={() => toggle(m)}
-                  disabled={isSaved || noBatch}
+                {/* Today attendance status */}
+                <div
                   className={clsx(
-                    "shrink-0 rounded-full px-4 py-1.5 text-xs font-bold transition-all duration-150",
-                    noBatch && !isSaved
-                      ? "cursor-not-allowed border border-base-600 bg-base-800 text-white/20"
-                      : isSaved
-                      ? "cursor-default bg-accent-green/20 text-accent-green"
-                      : isPending
-                      ? "bg-accent-green text-base-900 shadow-md shadow-accent-green/20 hover:bg-accent-green/80 active:scale-95"
-                      : "border border-base-500 bg-base-700 text-white/50 hover:border-white/30 hover:text-white active:scale-95"
+                    "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold",
+                    isPresent
+                      ? "bg-accent-green/20 text-accent-green"
+                      : isAbsent
+                      ? "bg-status-expired/15 text-status-expired"
+                      : "bg-base-700 text-white/30"
                   )}
                 >
-                  {isSaved ? "✓ Present" : isPending ? "Present" : "Absent"}
+                  {isPresent ? "✓ Present" : isAbsent ? "✗ Absent" : "—"}
+                </div>
+
+                {/* Edit / Mark button */}
+                <button
+                  onClick={() => toggleAttendance(member)}
+                  disabled={isSaving || noBatch}
+                  title={
+                    noBatch
+                      ? "No batch assigned"
+                      : isPresent
+                      ? "Click to mark absent"
+                      : isAbsent
+                      ? "Click to mark present"
+                      : "Click to mark present"
+                  }
+                  className={clsx(
+                    "shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all duration-150 active:scale-95",
+                    noBatch
+                      ? "cursor-not-allowed border border-base-600 bg-base-800 text-white/20"
+                      : isSaving
+                      ? "cursor-wait border border-base-500 bg-base-700 text-white/30"
+                      : isPresent
+                      ? "border border-accent-green/40 bg-transparent text-accent-green hover:border-status-expired/40 hover:bg-status-expired/10 hover:text-status-expired"
+                      : isAbsent
+                      ? "border border-status-expired/40 bg-transparent text-status-expired hover:border-accent-green/40 hover:bg-accent-green/10 hover:text-accent-green"
+                      : "border border-base-500 bg-base-700 text-white/60 hover:border-accent-green/40 hover:text-white"
+                  )}
+                >
+                  {isSaving
+                    ? "…"
+                    : isPresent
+                    ? "Mark Absent"
+                    : isAbsent
+                    ? "Mark Present"
+                    : "Mark Present"}
                 </button>
               </div>
             );
           })}
         </div>
       )}
-
-      {/* Sticky bottom bar */}
-      <div className="sticky bottom-4 space-y-2">
-        {justSaved && (
-          <div className="rounded-lg border border-accent-green/30 bg-accent-green/10 px-3 py-2 text-center text-sm font-semibold text-accent-green">
-            ✓ Attendance saved!
-          </div>
-        )}
-        {syncError && (
-          <div className="rounded-lg border border-status-expired/40 bg-status-expired/10 px-3 py-2 text-sm text-status-expired">
-            ⚠ {syncError}
-          </div>
-        )}
-        {pendingCount > 0 && (
-          <button
-            className="btn-primary w-full !py-4 text-base"
-            onClick={flush}
-            disabled={syncing}
-          >
-            {syncing ? "Saving…" : `Submit Attendance (${pendingCount} present)`}
-          </button>
-        )}
-      </div>
     </div>
   );
 }
