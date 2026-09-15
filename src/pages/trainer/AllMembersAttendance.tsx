@@ -16,6 +16,9 @@ type MemberWithBatch = MemberWithStatus & {
   member_batches: { batch_id: string }[];
 };
 
+type SavedEntry = { entryId: string; batchId: string };
+type PendingChange = { action: "add" | "remove"; batchId: string };
+
 // Returns record id for (trainer, batch, date) — creates one if missing
 async function getOrCreateRecord(trainerId: string, batchId: string): Promise<string> {
   const { data: existing } = await supabase
@@ -42,74 +45,88 @@ export function AllMembersAttendance() {
 
   const { data: members, isLoading: membersLoading } = useAllMembers();
 
-  // IDs already saved in DB for today (across all batches for this trainer)
-  const { data: savedIds = new Set<string>(), isLoading: savedLoading } = useQuery({
+  // Entries already saved in DB for today (across all batches for this trainer)
+  const { data: savedEntries = new Map<string, SavedEntry>(), isLoading: savedLoading } = useQuery({
     queryKey: ["all-attendance-today", profile?.id],
     enabled: !!profile?.id,
     queryFn: async () => {
       const { data: records } = await supabase
         .from("attendance_records")
-        .select("id, entries:attendance_entries(member_id)")
+        .select("id, batch_id, entries:attendance_entries(id, member_id)")
         .eq("trainer_id", profile!.id)
         .eq("session_date", todayISO());
 
-      if (!records || records.length === 0) return new Set<string>();
-
-      const ids = new Set<string>();
-      for (const rec of records) {
-        for (const entry of rec.entries ?? []) {
-          ids.add((entry as any).member_id);
+      const map = new Map<string, SavedEntry>();
+      for (const rec of records ?? []) {
+        for (const entry of (rec as any).entries ?? []) {
+          map.set(entry.member_id, { entryId: entry.id, batchId: (rec as any).batch_id });
         }
       }
-      return ids;
+      return map;
     },
   });
 
   const [search, setSearch] = useState("");
   const [presentIds, setPresentIds] = useState<Set<string>>(new Set());
-  // Map memberId -> batchId so flush knows where to write
-  const pendingRef = useRef<Map<string, string>>(new Map());
+  // Map memberId -> pending add/remove not yet flushed
+  const pendingRef = useRef<Map<string, PendingChange>>(new Map());
 
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Bring newly-saved members into the displayed present set (e.g. after a flush or a fresh load)
+  useEffect(() => {
+    setPresentIds((prev) => {
+      const next = new Set(prev);
+      for (const id of savedEntries.keys()) next.add(id);
+      return next;
+    });
+  }, [savedEntries]);
+
   const flush = useCallback(async () => {
     if (!profile?.id) return;
 
-    // Only flush members not yet saved
-    const toFlush = Array.from(pendingRef.current.entries()).filter(
-      ([id]) => !savedIds.has(id)
-    );
-    if (toFlush.length === 0) {
-      pendingRef.current.clear();
-      return;
-    }
+    const toFlush = Array.from(pendingRef.current.entries());
+    if (toFlush.length === 0) return;
 
     setSyncing(true);
     setSyncError(null);
 
     try {
-      // Group by batchId — one record insert per batch
-      const byBatch = new Map<string, string[]>();
-      for (const [memberId, batchId] of toFlush) {
-        if (!byBatch.has(batchId)) byBatch.set(batchId, []);
-        byBatch.get(batchId)!.push(memberId);
+      const toAdd = toFlush.filter(([, change]) => change.action === "add");
+      const toRemove = toFlush.filter(([, change]) => change.action === "remove");
+
+      if (toAdd.length > 0) {
+        const byBatch = new Map<string, string[]>();
+        for (const [memberId, change] of toAdd) {
+          if (!byBatch.has(change.batchId)) byBatch.set(change.batchId, []);
+          byBatch.get(change.batchId)!.push(memberId);
+        }
+
+        for (const [batchId, memberIds] of byBatch) {
+          const recordId = await getOrCreateRecord(profile.id, batchId);
+          const entries = memberIds.map((member_id) => ({
+            attendance_record_id: recordId,
+            member_id,
+            present: true,
+          }));
+          const { error } = await supabase.from("attendance_entries").insert(entries);
+          if (error) throw error;
+        }
       }
 
-      for (const [batchId, memberIds] of byBatch) {
-        const recordId = await getOrCreateRecord(profile.id, batchId);
-        const entries = memberIds.map((member_id) => ({
-          attendance_record_id: recordId,
-          member_id,
-          present: true,
-        }));
-        const { error } = await supabase.from("attendance_entries").insert(entries);
-        if (error) throw error;
+      if (toRemove.length > 0) {
+        const entryIds = toRemove
+          .map(([memberId]) => savedEntries.get(memberId)?.entryId)
+          .filter((id): id is string => !!id);
+        if (entryIds.length > 0) {
+          const { error } = await supabase.from("attendance_entries").delete().in("id", entryIds);
+          if (error) throw error;
+        }
       }
 
-      // Clear flushed entries
       for (const [id] of toFlush) pendingRef.current.delete(id);
 
       await queryClient.invalidateQueries({
@@ -123,7 +140,7 @@ export function AllMembersAttendance() {
     } finally {
       setSyncing(false);
     }
-  }, [profile?.id, savedIds, queryClient]);
+  }, [profile?.id, savedEntries, queryClient]);
 
   // Auto-sync every 30s
   useEffect(() => {
@@ -135,21 +152,27 @@ export function AllMembersAttendance() {
   useEffect(() => () => { flush(); }, []); // eslint-disable-line
 
   function toggle(member: MemberWithBatch) {
-    if (savedIds.has(member.id)) return;
-
-    if (!member.batchId) {
-      // Member has no batch assigned — can't record attendance
-      return;
-    }
+    const batchId = member.batchId ?? savedEntries.get(member.id)?.batchId;
+    if (!batchId) return; // no batch assigned — can't record attendance
 
     setPresentIds((prev) => {
       const next = new Set(prev);
+      const wasSaved = savedEntries.has(member.id);
+
       if (next.has(member.id)) {
         next.delete(member.id);
-        pendingRef.current.delete(member.id);
+        if (wasSaved) {
+          pendingRef.current.set(member.id, { action: "remove", batchId });
+        } else {
+          pendingRef.current.delete(member.id);
+        }
       } else {
         next.add(member.id);
-        pendingRef.current.set(member.id, member.batchId!);
+        if (wasSaved) {
+          pendingRef.current.delete(member.id);
+        } else {
+          pendingRef.current.set(member.id, { action: "add", batchId });
+        }
       }
       return next;
     });
@@ -164,7 +187,7 @@ export function AllMembersAttendance() {
     return m.name.toLowerCase().includes(q) || m.phone.toLowerCase().includes(q);
   });
 
-  const pendingCount = Array.from(presentIds).filter((id) => !savedIds.has(id)).length;
+  const pendingCount = pendingRef.current.size;
 
   return (
     <div className="space-y-4">
@@ -174,11 +197,14 @@ export function AllMembersAttendance() {
         <p className="text-sm text-white/50">
           {formatDate(todayISO(), "EEEE, dd MMM yyyy")}
         </p>
-        {savedIds.size > 0 && (
+        {savedEntries.size > 0 && (
           <p className="mt-1 text-xs text-accent-green">
-            ✓ {savedIds.size} member{savedIds.size !== 1 ? "s" : ""} already saved today
+            ✓ {savedEntries.size} member{savedEntries.size !== 1 ? "s" : ""} already saved today
           </p>
         )}
+        <p className="mt-1 text-xs text-white/30">
+          Tap a member to toggle present/absent — today's attendance can be corrected any time before end of day.
+        </p>
       </div>
 
       {/* Search */}
@@ -197,10 +223,8 @@ export function AllMembersAttendance() {
 
           {filtered.map((member) => {
             const m = member as MemberWithBatch;
-            const isSaved = savedIds.has(m.id);
-            const isPending = presentIds.has(m.id);
-            const isPresent = isSaved || isPending;
-            const noBatch = !m.batchId;
+            const isPresent = presentIds.has(m.id);
+            const noBatch = !m.batchId && !savedEntries.has(m.id);
 
             return (
               <div
@@ -232,19 +256,17 @@ export function AllMembersAttendance() {
 
                 <button
                   onClick={() => toggle(m)}
-                  disabled={isSaved || noBatch}
+                  disabled={noBatch}
                   className={clsx(
                     "shrink-0 rounded-full px-4 py-1.5 text-xs font-bold transition-all duration-150",
-                    noBatch && !isSaved
+                    noBatch
                       ? "cursor-not-allowed border border-base-600 bg-base-800 text-white/20"
-                      : isSaved
-                      ? "cursor-default bg-accent-green/20 text-accent-green"
-                      : isPending
+                      : isPresent
                       ? "bg-accent-green text-base-900 shadow-md shadow-accent-green/20 hover:bg-accent-green/80 active:scale-95"
                       : "border border-base-500 bg-base-700 text-white/50 hover:border-white/30 hover:text-white active:scale-95"
                   )}
                 >
-                  {isSaved ? "✓ Present" : isPending ? "Present" : "Absent"}
+                  {isPresent ? "Present" : "Absent"}
                 </button>
               </div>
             );
@@ -270,7 +292,7 @@ export function AllMembersAttendance() {
             onClick={flush}
             disabled={syncing}
           >
-            {syncing ? "Saving…" : `Submit Attendance (${pendingCount} present)`}
+            {syncing ? "Saving…" : `Save Changes (${pendingCount} pending)`}
           </button>
         )}
       </div>

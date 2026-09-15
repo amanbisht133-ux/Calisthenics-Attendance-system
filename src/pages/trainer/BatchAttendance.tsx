@@ -29,10 +29,26 @@ export function BatchAttendance() {
   const [demoDraft, setDemoDraft] = useState<DemoVisitorDraft>({ name: "", phone: "" });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const filteredMembers = (members ?? []).filter((m) =>
     m.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  function startEditing() {
+    const currentPresent = new Set<string>(
+      (existingRecord?.entries ?? []).filter((e: any) => e.present).map((e: any) => e.member_id)
+    );
+    setPresentIds(currentPresent);
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setEditing(false);
+    setPresentIds(new Set());
+    setError(null);
+  }
 
   function toggleMember(id: string) {
     setPresentIds((prev) => {
@@ -56,26 +72,58 @@ export function BatchAttendance() {
     setError(null);
 
     try {
-      const { data: record, error: recordError } = await supabase
-        .from("attendance_records")
-        .insert({ batch_id: batchId, trainer_id: profile.id, session_date: todayISO() })
-        .select()
-        .single();
-      if (recordError) throw recordError;
+      let recordId: string;
 
-      if (presentIds.size > 0) {
-        const entries = Array.from(presentIds).map((member_id) => ({
-          attendance_record_id: record.id,
-          member_id,
-          present: true,
-        }));
-        const { error: entriesError } = await supabase.from("attendance_entries").insert(entries);
-        if (entriesError) throw entriesError;
+      if (editing && existingRecord) {
+        recordId = existingRecord.id;
+
+        const originalPresent: Map<string, string> = new Map(
+          (existingRecord.entries ?? [])
+            .filter((e: any) => e.present)
+            .map((e: any) => [e.member_id, e.id])
+        );
+
+        const toAdd = Array.from(presentIds).filter((id) => !originalPresent.has(id));
+        const toRemove = Array.from(originalPresent.keys()).filter((id) => !presentIds.has(id));
+
+        if (toAdd.length > 0) {
+          const entries = toAdd.map((member_id) => ({
+            attendance_record_id: recordId,
+            member_id,
+            present: true,
+          }));
+          const { error: entriesError } = await supabase.from("attendance_entries").insert(entries);
+          if (entriesError) throw entriesError;
+        }
+
+        if (toRemove.length > 0) {
+          const entryIds = toRemove.map((id) => originalPresent.get(id)!);
+          const { error: removeError } = await supabase.from("attendance_entries").delete().in("id", entryIds);
+          if (removeError) throw removeError;
+        }
+      } else {
+        const { data: record, error: recordError } = await supabase
+          .from("attendance_records")
+          .insert({ batch_id: batchId, trainer_id: profile.id, session_date: todayISO() })
+          .select()
+          .single();
+        if (recordError) throw recordError;
+        recordId = record.id;
+
+        if (presentIds.size > 0) {
+          const entries = Array.from(presentIds).map((member_id) => ({
+            attendance_record_id: recordId,
+            member_id,
+            present: true,
+          }));
+          const { error: entriesError } = await supabase.from("attendance_entries").insert(entries);
+          if (entriesError) throw entriesError;
+        }
       }
 
       if (demoVisitors.length > 0) {
         const visitors = demoVisitors.map((v) => ({
-          attendance_record_id: record.id,
+          attendance_record_id: recordId,
           name: v.name,
           phone: v.phone,
           visit_date: todayISO(),
@@ -85,6 +133,8 @@ export function BatchAttendance() {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["attendance-record", batchId, profile.id] });
+      setEditing(false);
+      setDemoVisitors([]);
     } catch (e: any) {
       setError(e.message ?? "Failed to submit attendance.");
     } finally {
@@ -92,7 +142,7 @@ export function BatchAttendance() {
     }
   }
 
-  const isLocked = !!existingRecord;
+  const isLocked = !!existingRecord && !editing;
 
   if (isLoading || recordLoading) {
     return <p className="text-white/50">Loading roster…</p>;
@@ -116,9 +166,18 @@ export function BatchAttendance() {
       </div>
 
       {isLocked ? (
-        <LockedSummary record={existingRecord} members={members ?? []} />
+        <LockedSummary record={existingRecord} members={members ?? []} onEdit={startEditing} />
       ) : (
         <>
+          {editing && (
+            <div className="flex items-center justify-between rounded-lg border border-accent-orange/40 bg-accent-orange/10 px-3 py-2 text-sm text-accent-orange">
+              <span>Editing today's submitted attendance</span>
+              <button className="btn-ghost !py-1 text-xs" onClick={cancelEditing}>
+                Cancel
+              </button>
+            </div>
+          )}
+
           <SearchBar value={search} onChange={setSearch} />
 
           <div className="card divide-y divide-base-700">
@@ -206,7 +265,11 @@ export function BatchAttendance() {
           )}
 
           <button className="btn-primary sticky bottom-4 w-full !py-4 text-base" onClick={submitAttendance} disabled={submitting}>
-            {submitting ? "Submitting…" : `Submit Attendance (${presentIds.size} present)`}
+            {submitting
+              ? "Saving…"
+              : editing
+              ? `Save Changes (${presentIds.size} present)`
+              : `Submit Attendance (${presentIds.size} present)`}
           </button>
         </>
       )}
@@ -214,7 +277,7 @@ export function BatchAttendance() {
   );
 }
 
-function LockedSummary({ record, members }: { record: any; members: any[] }) {
+function LockedSummary({ record, members, onEdit }: { record: any; members: any[]; onEdit: () => void }) {
   const presentEntries = (record.entries ?? []).filter((e: any) => e.present);
   const presentSet = new Set(presentEntries.map((e: any) => e.member_id));
   const demoVisitors = record.demo_visitors ?? [];
@@ -222,9 +285,14 @@ function LockedSummary({ record, members }: { record: any; members: any[] }) {
   return (
     <div className="space-y-4">
       <div className="card p-4">
-        <h3 className="mb-3 text-sm font-semibold text-white/60">
-          Present ({presentEntries.length}/{members.length})
-        </h3>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white/60">
+            Present ({presentEntries.length}/{members.length})
+          </h3>
+          <button className="btn-secondary !py-1 text-xs" onClick={onEdit}>
+            Edit Attendance
+          </button>
+        </div>
         <ul className="divide-y divide-base-700">
           {members
             .filter((m) => presentSet.has(m.id))
@@ -250,7 +318,7 @@ function LockedSummary({ record, members }: { record: any; members: any[] }) {
         </div>
       )}
       <p className="text-center text-xs text-white/30">
-        This record is locked. Attendance is immutable once submitted for audit purposes.
+        Submitted attendance can still be corrected today. It locks permanently after midnight for audit purposes.
       </p>
     </div>
   );
