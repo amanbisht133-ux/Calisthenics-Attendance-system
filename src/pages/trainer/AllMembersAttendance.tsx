@@ -109,13 +109,13 @@ export function AllMembersAttendance() {
               <div
                 key={member.id}
                 className={clsx(
-                  "flex items-center gap-3 px-4 py-3 transition-colors",
+                  "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors",
                   isPresent && "bg-accent-green/5",
                   (isAbsent || (member.status === "expired" && !isPresent)) && "bg-status-expired/5"
                 )}
               >
                 {/* Info */}
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div
                     className={clsx(
                       "truncate font-semibold",
@@ -128,26 +128,28 @@ export function AllMembersAttendance() {
                   <div className="text-xs text-white/40">{member.phone}</div>
                 </div>
 
-                <StatusBadge status={member.status} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={member.status} />
 
-                <span
-                  className={clsx(
-                    "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
-                    isPresent
-                      ? "bg-accent-green/15 text-accent-green"
-                      : isAbsent
-                      ? "bg-status-expired/15 text-status-expired"
-                      : "border border-base-600 bg-base-800 text-white/30"
+                  <span
+                    className={clsx(
+                      "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
+                      isPresent
+                        ? "bg-accent-green/15 text-accent-green"
+                        : isAbsent
+                        ? "bg-status-expired/15 text-status-expired"
+                        : "border border-base-600 bg-base-800 text-white/30"
+                    )}
+                  >
+                    {isPresent ? `✓ Present · ${presence.batchName}` : isAbsent ? "Absent" : "Not marked yet"}
+                  </span>
+
+                  {isPresent && isToday && (
+                    <Link to={`/trainer/batch/${presence.batchId}`} className="btn-ghost shrink-0 !px-3 !py-1.5 text-xs">
+                      Go →
+                    </Link>
                   )}
-                >
-                  {isPresent ? `✓ Present · ${presence.batchName}` : isAbsent ? "Absent" : "Not marked yet"}
-                </span>
-
-                {isPresent && isToday && (
-                  <Link to={`/trainer/batch/${presence.batchId}`} className="btn-ghost shrink-0 !px-3 !py-1.5 text-xs">
-                    Go →
-                  </Link>
-                )}
+                </div>
               </div>
             );
           })}
