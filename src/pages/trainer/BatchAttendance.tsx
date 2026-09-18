@@ -1,12 +1,16 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useAuth } from "@/context/AuthContext";
-import { useBatchMembers, useTodaysAttendanceRecord } from "@/hooks/useTrainerData";
+import { useBranch } from "@/context/BranchContext";
+import { useAllMembers, useAllBatches, useTodaysAttendanceMap, useTodaysAttendanceRecord } from "@/hooks/useTrainerData";
 import { supabase } from "@/lib/supabaseClient";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { StatCard } from "@/components/ui/Card";
+import { Pagination } from "@/components/ui/Pagination";
+import { usePagination } from "@/hooks/usePagination";
 import { todayISO, formatDate } from "@/lib/utils";
 
 interface DemoVisitorDraft {
@@ -14,296 +18,440 @@ interface DemoVisitorDraft {
   phone: string;
 }
 
+async function ensureRecordId(batchId: string, trainerId: string): Promise<string> {
+  const { data: existing } = await supabase
+    .from("attendance_records")
+    .select("id")
+    .eq("batch_id", batchId)
+    .eq("trainer_id", trainerId)
+    .eq("session_date", todayISO())
+    .limit(1);
+  if (existing && existing.length > 0) return existing[0].id;
+
+  const { data: created, error } = await supabase
+    .from("attendance_records")
+    .insert({ batch_id: batchId, trainer_id: trainerId, session_date: todayISO() })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return created.id;
+}
+
 export function BatchAttendance() {
   const { batchId } = useParams<{ batchId: string }>();
   const { profile } = useAuth();
+  const { selectedBranchId } = useBranch();
   const queryClient = useQueryClient();
 
-  const { data: members, isLoading } = useBatchMembers(batchId);
+  // Every member in this branch is eligible for every one of this branch's
+  // batch sessions — attendance is recorded against whichever batch the
+  // trainer is actually running, not the member's own assigned batch.
+  const { data: members, isLoading } = useAllMembers(selectedBranchId ?? undefined);
+  const { data: batches } = useAllBatches(selectedBranchId ?? undefined);
   const { data: existingRecord, isLoading: recordLoading } = useTodaysAttendanceRecord(batchId, profile?.id);
+  const { data: presenceMap = new Map(), isLoading: presenceLoading } = useTodaysAttendanceMap(profile?.id);
+
+  const currentBatch = batches?.find((b) => b.id === batchId);
+  const batchNameById = new Map((batches ?? []).map((b) => [b.id, b.name]));
+  const batchCategoryById = new Map((batches ?? []).map((b) => [b.id, b.category]));
+  const isKidsBatch = currentBatch?.category === "kids";
 
   const [search, setSearch] = useState("");
+  const [rosterFilter, setRosterFilter] = useState<"all" | "this_batch">("this_batch");
   const [presentIds, setPresentIds] = useState<Set<string>>(new Set());
-  const [demoVisitors, setDemoVisitors] = useState<DemoVisitorDraft[]>([]);
+  const [entryIdByMember, setEntryIdByMember] = useState<Map<string, string>>(new Map());
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [markingAll, setMarkingAll] = useState(false);
+  const [unmarkingAll, setUnmarkingAll] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
   const [showDemoForm, setShowDemoForm] = useState(false);
   const [demoDraft, setDemoDraft] = useState<DemoVisitorDraft>({ name: "", phone: "" });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
+  const [addingDemo, setAddingDemo] = useState(false);
+  const recordIdRef = useRef<string | null>(null);
 
-  const filteredMembers = (members ?? []).filter((m) =>
-    m.name.toLowerCase().includes(search.toLowerCase())
+  // Keep local present/entry state in sync with the server's copy of today's record.
+  useEffect(() => {
+    recordIdRef.current = existingRecord?.id ?? null;
+    const present = new Set<string>();
+    const entryMap = new Map<string, string>();
+    for (const e of existingRecord?.entries ?? []) {
+      if (e.present) {
+        present.add(e.member_id);
+        entryMap.set(e.member_id, e.id);
+      }
+    }
+    setPresentIds(present);
+    setEntryIdByMember(entryMap);
+  }, [existingRecord]);
+
+  // Kids batches only ever show members whose own assigned batch is also a
+  // kids batch, and kids are hidden from every non-kids batch.
+  const kidsFilteredMembers = (members ?? []).filter((m) => {
+    const memberIsKid = !!m.batchId && batchCategoryById.get(m.batchId) === "kids";
+    return isKidsBatch ? memberIsKid : !memberIsKid;
+  });
+
+  // A member already marked present in a different batch's session today
+  // can't be marked here too — they only belong to one session per day.
+  const presentElsewhereIds = new Set(
+    kidsFilteredMembers
+      .filter((m) => {
+        const presence = presenceMap.get(m.id);
+        return presence && presence.batchId !== batchId;
+      })
+      .map((m) => m.id)
   );
+  const actionableMembers = kidsFilteredMembers.filter((m) => !presentElsewhereIds.has(m.id));
 
-  function startEditing() {
-    const currentPresent = new Set<string>(
-      (existingRecord?.entries ?? []).filter((e: any) => e.present).map((e: any) => e.member_id)
-    );
-    setPresentIds(currentPresent);
-    setError(null);
-    setEditing(true);
+  const rosterMembers =
+    rosterFilter === "this_batch" ? actionableMembers.filter((m) => m.batchId === batchId) : actionableMembers;
+  const unmarkedInRosterCount = rosterMembers.filter((m) => !presentIds.has(m.id)).length;
+  const markedInRosterCount = rosterMembers.length - unmarkedInRosterCount;
+
+  // In "All Members" mode, also surface who's already accounted for
+  // elsewhere today — visible for reference, but not actionable from here.
+  const presentElsewhereMembers =
+    rosterFilter === "all" ? kidsFilteredMembers.filter((m) => presentElsewhereIds.has(m.id)) : [];
+  const displayMembers = [...rosterMembers, ...presentElsewhereMembers];
+
+  // Present anywhere in the branch today (any batch), for the "All Members" scorecard.
+  const presentAnywhereCount = kidsFilteredMembers.filter((m) => presenceMap.has(m.id)).length;
+  const scorecardTotal = rosterFilter === "all" ? kidsFilteredMembers.length : rosterMembers.length;
+  const scorecardPresent =
+    rosterFilter === "all" ? presentAnywhereCount : rosterMembers.filter((m) => presentIds.has(m.id)).length;
+
+  const q = search.toLowerCase().trim();
+  const filteredMembers = q
+    ? displayMembers.filter((m) => m.name.toLowerCase().includes(q) || m.phone.toLowerCase().includes(q))
+    : displayMembers;
+
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(filteredMembers);
+
+  async function invalidateAll() {
+    if (!profile) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["attendance-record", batchId, profile.id] }),
+      queryClient.invalidateQueries({ queryKey: ["attendance-map", profile.id] }),
+      queryClient.invalidateQueries({ queryKey: ["all-members-attendance-today", profile.id] }),
+    ]);
   }
 
-  function cancelEditing() {
-    setEditing(false);
-    setPresentIds(new Set());
-    setError(null);
-  }
+  async function toggleMember(memberId: string) {
+    if (!batchId || !profile || savingIds.has(memberId)) return;
+    setPageError(null);
+    const wasPresent = presentIds.has(memberId);
 
-  function toggleMember(id: string) {
+    setSavingIds((prev) => new Set(prev).add(memberId));
     setPresentIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (wasPresent) next.delete(memberId);
+      else next.add(memberId);
       return next;
     });
-  }
-
-  function addDemoVisitor() {
-    if (!demoDraft.name.trim() || !demoDraft.phone.trim()) return;
-    setDemoVisitors((prev) => [...prev, demoDraft]);
-    setDemoDraft({ name: "", phone: "" });
-    setShowDemoForm(false);
-  }
-
-  async function submitAttendance() {
-    if (!batchId || !profile) return;
-    setSubmitting(true);
-    setError(null);
 
     try {
-      let recordId: string;
-
-      if (editing && existingRecord) {
-        recordId = existingRecord.id;
-
-        const originalPresent: Map<string, string> = new Map(
-          (existingRecord.entries ?? [])
-            .filter((e: any) => e.present)
-            .map((e: any) => [e.member_id, e.id])
-        );
-
-        const toAdd = Array.from(presentIds).filter((id) => !originalPresent.has(id));
-        const toRemove = Array.from(originalPresent.keys()).filter((id) => !presentIds.has(id));
-
-        if (toAdd.length > 0) {
-          const entries = toAdd.map((member_id) => ({
-            attendance_record_id: recordId,
-            member_id,
-            present: true,
-          }));
-          const { error: entriesError } = await supabase.from("attendance_entries").insert(entries);
-          if (entriesError) throw entriesError;
-        }
-
-        if (toRemove.length > 0) {
-          const entryIds = toRemove.map((id) => originalPresent.get(id)!);
-          const { error: removeError } = await supabase.from("attendance_entries").delete().in("id", entryIds);
-          if (removeError) throw removeError;
+      if (wasPresent) {
+        const entryId = entryIdByMember.get(memberId);
+        if (entryId) {
+          const { error } = await supabase.from("attendance_entries").delete().eq("id", entryId);
+          if (error) throw error;
+          setEntryIdByMember((prev) => {
+            const next = new Map(prev);
+            next.delete(memberId);
+            return next;
+          });
         }
       } else {
-        const { data: record, error: recordError } = await supabase
-          .from("attendance_records")
-          .insert({ batch_id: batchId, trainer_id: profile.id, session_date: todayISO() })
-          .select()
-          .single();
-        if (recordError) throw recordError;
-        recordId = record.id;
-
-        if (presentIds.size > 0) {
-          const entries = Array.from(presentIds).map((member_id) => ({
-            attendance_record_id: recordId,
-            member_id,
-            present: true,
-          }));
-          const { error: entriesError } = await supabase.from("attendance_entries").insert(entries);
-          if (entriesError) throw entriesError;
+        if (!recordIdRef.current) {
+          recordIdRef.current = await ensureRecordId(batchId, profile.id);
         }
+        const { data, error } = await supabase
+          .from("attendance_entries")
+          .insert({ attendance_record_id: recordIdRef.current, member_id: memberId, present: true })
+          .select("id")
+          .single();
+        if (error) throw error;
+        setEntryIdByMember((prev) => new Map(prev).set(memberId, data.id));
       }
-
-      if (demoVisitors.length > 0) {
-        const visitors = demoVisitors.map((v) => ({
-          attendance_record_id: recordId,
-          name: v.name,
-          phone: v.phone,
-          visit_date: todayISO(),
-        }));
-        const { error: demoError } = await supabase.from("demo_visitors").insert(visitors);
-        if (demoError) throw demoError;
-      }
-
-      await queryClient.invalidateQueries({ queryKey: ["attendance-record", batchId, profile.id] });
-      setEditing(false);
-      setDemoVisitors([]);
+      await invalidateAll();
     } catch (e: any) {
-      setError(e.message ?? "Failed to submit attendance.");
+      // Roll back the optimistic toggle.
+      setPresentIds((prev) => {
+        const next = new Set(prev);
+        if (wasPresent) next.add(memberId);
+        else next.delete(memberId);
+        return next;
+      });
+      setPageError(e.message ?? "Failed to update attendance.");
     } finally {
-      setSubmitting(false);
+      setSavingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(memberId);
+        return next;
+      });
     }
   }
 
-  const isLocked = !!existingRecord && !editing;
+  async function markAllPresent() {
+    if (!batchId || !profile) return;
+    const toMark = rosterMembers.filter((m) => !presentIds.has(m.id));
+    if (toMark.length === 0) return;
 
-  if (isLoading || recordLoading) {
+    setMarkingAll(true);
+    setPageError(null);
+    try {
+      if (!recordIdRef.current) {
+        recordIdRef.current = await ensureRecordId(batchId, profile.id);
+      }
+      const { data, error } = await supabase
+        .from("attendance_entries")
+        .insert(toMark.map((m) => ({ attendance_record_id: recordIdRef.current, member_id: m.id, present: true })))
+        .select("id, member_id");
+      if (error) throw error;
+
+      setPresentIds((prev) => {
+        const next = new Set(prev);
+        toMark.forEach((m) => next.add(m.id));
+        return next;
+      });
+      setEntryIdByMember((prev) => {
+        const next = new Map(prev);
+        (data ?? []).forEach((row: any) => next.set(row.member_id, row.id));
+        return next;
+      });
+      await invalidateAll();
+    } catch (e: any) {
+      setPageError(e.message ?? "Failed to mark everyone present.");
+    } finally {
+      setMarkingAll(false);
+    }
+  }
+
+  async function unmarkAllPresent() {
+    const toUnmark = rosterMembers.filter((m) => presentIds.has(m.id));
+    if (toUnmark.length === 0) return;
+
+    setUnmarkingAll(true);
+    setPageError(null);
+    try {
+      const entryIds = toUnmark.map((m) => entryIdByMember.get(m.id)).filter((id): id is string => !!id);
+      if (entryIds.length > 0) {
+        const { error } = await supabase.from("attendance_entries").delete().in("id", entryIds);
+        if (error) throw error;
+      }
+
+      setPresentIds((prev) => {
+        const next = new Set(prev);
+        toUnmark.forEach((m) => next.delete(m.id));
+        return next;
+      });
+      setEntryIdByMember((prev) => {
+        const next = new Map(prev);
+        toUnmark.forEach((m) => next.delete(m.id));
+        return next;
+      });
+      await invalidateAll();
+    } catch (e: any) {
+      setPageError(e.message ?? "Failed to unmark everyone.");
+    } finally {
+      setUnmarkingAll(false);
+    }
+  }
+
+  async function addDemoVisitor() {
+    if (!demoDraft.name.trim() || !demoDraft.phone.trim() || !batchId || !profile) return;
+    setAddingDemo(true);
+    setPageError(null);
+    try {
+      if (!recordIdRef.current) {
+        recordIdRef.current = await ensureRecordId(batchId, profile.id);
+      }
+      const { error } = await supabase.from("demo_visitors").insert({
+        attendance_record_id: recordIdRef.current,
+        name: demoDraft.name,
+        phone: demoDraft.phone,
+        visit_date: todayISO(),
+      });
+      if (error) throw error;
+      setDemoDraft({ name: "", phone: "" });
+      setShowDemoForm(false);
+      await invalidateAll();
+    } catch (e: any) {
+      setPageError(e.message ?? "Failed to add demo visitor.");
+    } finally {
+      setAddingDemo(false);
+    }
+  }
+
+  function MemberRow({ member }: { member: (typeof kidsFilteredMembers)[number] }) {
+    const presence = presenceMap.get(member.id);
+    const presentElsewhere = !!presence && presence.batchId !== batchId;
+    const checked = presentElsewhere ? true : presentIds.has(member.id);
+    const saving = savingIds.has(member.id);
+    const expired = member.status === "expired";
+
+    return (
+      <div
+        className={clsx(
+          "flex items-center gap-4 px-4 py-3.5 transition-colors",
+          !presentElsewhere && "cursor-pointer",
+          checked && "bg-accent-green/5",
+          expired && !checked && "bg-status-expired/10",
+          saving && "opacity-60",
+          presentElsewhere && "opacity-60"
+        )}
+      >
+        <label className="flex flex-1 items-center gap-4 min-w-0">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={saving || presentElsewhere}
+            onChange={() => toggleMember(member.id)}
+            className="h-6 w-6 shrink-0 rounded border-2 border-base-500 accent-accent-green"
+          />
+          <div className="min-w-0 flex-1">
+            <div className={clsx("truncate font-semibold", expired && !checked && "text-status-expired")}>
+              {expired && !checked && "⚠️ "}
+              {member.name}
+            </div>
+            <div className="text-xs text-white/40">
+              {member.phone}
+              {saving && <span className="ml-2 text-white/30">Saving…</span>}
+            </div>
+            {presentElsewhere && (
+              <div className="text-xs text-accent-green">✓ Present in {presence!.batchName}</div>
+            )}
+            {!presentElsewhere && member.batchId && member.batchId !== batchId && (
+              <div className="text-xs text-white/30">
+                Usually in {batchNameById.get(member.batchId) ?? "another batch"}
+              </div>
+            )}
+            {!presentElsewhere && !member.batchId && (
+              <div className="text-xs text-yellow-500/60">No batch assigned</div>
+            )}
+          </div>
+          <StatusBadge status={member.status} />
+        </label>
+        {presentElsewhere && (
+          <Link
+            to={`/trainer/batch/${presence!.batchId}`}
+            className="btn-ghost shrink-0 !px-3 !py-1.5 text-xs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Go →
+          </Link>
+        )}
+      </div>
+    );
+  }
+
+  const demoVisitors = existingRecord?.demo_visitors ?? [];
+
+  if (isLoading || recordLoading || presenceLoading) {
     return <p className="text-white/50">Loading roster…</p>;
   }
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
           <Link to="/trainer" className="text-xs text-white/40 hover:text-white/70">
             ← Back to today
           </Link>
-          <h1 className="mt-1 text-2xl font-bold">Mark Attendance</h1>
+          <h1 className="mt-1 text-2xl font-bold">{currentBatch ? currentBatch.name : "Mark Attendance"}</h1>
           <p className="text-sm text-white/50">{formatDate(todayISO(), "EEEE, dd MMM yyyy")}</p>
         </div>
-        {isLocked && (
-          <span className="rounded-full border border-accent-green/40 bg-accent-green/10 px-3 py-1.5 text-xs font-semibold text-accent-green">
-            🔒 Submitted at {new Date(existingRecord.submitted_at).toLocaleTimeString()}
-          </span>
-        )}
+        <span className="rounded-full border border-accent-green/40 bg-accent-green/10 px-3 py-1.5 text-xs font-semibold text-accent-green">
+          {presentIds.size} present in current batch
+        </span>
       </div>
 
-      {isLocked ? (
-        <LockedSummary record={existingRecord} members={members ?? []} onEdit={startEditing} />
-      ) : (
-        <>
-          {editing && (
-            <div className="flex items-center justify-between rounded-lg border border-accent-orange/40 bg-accent-orange/10 px-3 py-2 text-sm text-accent-orange">
-              <span>Editing today's submitted attendance</span>
-              <button className="btn-ghost !py-1 text-xs" onClick={cancelEditing}>
-                Cancel
-              </button>
-            </div>
+      <p className="text-xs text-white/30">
+        Tap a member to mark them present or absent — it saves instantly, no submit step needed. Corrections stay open until end of day.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard label={rosterFilter === "all" ? "Present Today (All Batches)" : "Present"} value={scorecardPresent} accent="green" />
+        <StatCard label="Absent" value={scorecardTotal - scorecardPresent} accent="red" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className={clsx(
+            "rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+            rosterFilter === "all"
+              ? "border-accent-green bg-accent-green/10 text-accent-green"
+              : "border-base-600 text-white/50 hover:text-white"
           )}
-
-          <SearchBar value={search} onChange={setSearch} />
-
-          <div className="card divide-y divide-base-700">
-            {filteredMembers.map((member) => {
-              const checked = presentIds.has(member.id);
-              const expired = member.status === "expired";
-              return (
-                <label
-                  key={member.id}
-                  className={clsx(
-                    "flex cursor-pointer items-center gap-4 px-4 py-3.5 transition-colors",
-                    expired && "bg-status-expired/10"
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleMember(member.id)}
-                    className="h-6 w-6 shrink-0 rounded border-2 border-base-500 accent-accent-green"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className={clsx("truncate font-semibold", expired && "text-status-expired")}>
-                      {expired && "⚠️ "}
-                      {member.name}
-                    </div>
-                    <div className="text-xs text-white/40">{member.phone}</div>
-                  </div>
-                  <StatusBadge status={member.status} />
-                </label>
-              );
-            })}
-            {filteredMembers.length === 0 && (
-              <div className="px-4 py-8 text-center text-white/40">No members match "{search}"</div>
-            )}
-          </div>
-
-          {demoVisitors.length > 0 && (
-            <div className="card p-4">
-              <h3 className="mb-2 text-sm font-semibold text-white/60">Demo Visitors ({demoVisitors.length})</h3>
-              <ul className="space-y-1 text-sm">
-                {demoVisitors.map((v, i) => (
-                  <li key={i} className="flex justify-between text-white/80">
-                    <span>{v.name}</span>
-                    <span className="text-white/40">{v.phone}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          onClick={() => setRosterFilter("all")}
+        >
+          All Members
+        </button>
+        <button
+          type="button"
+          className={clsx(
+            "rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors",
+            rosterFilter === "this_batch"
+              ? "border-accent-green bg-accent-green/10 text-accent-green"
+              : "border-base-600 text-white/50 hover:text-white"
           )}
+          onClick={() => setRosterFilter("this_batch")}
+        >
+          Only This Batch
+        </button>
+      </div>
 
-          {showDemoForm ? (
-            <div className="card space-y-3 p-4">
-              <h3 className="font-semibold">Add Demo Visitor</h3>
-              <input
-                className="input"
-                placeholder="Full name"
-                value={demoDraft.name}
-                onChange={(e) => setDemoDraft((d) => ({ ...d, name: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="Phone number"
-                value={demoDraft.phone}
-                onChange={(e) => setDemoDraft((d) => ({ ...d, phone: e.target.value }))}
-              />
-              <div className="flex gap-2">
-                <button className="btn-primary flex-1" onClick={addDemoVisitor}>
-                  Add
-                </button>
-                <button className="btn-ghost" onClick={() => setShowDemoForm(false)}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button className="btn-secondary w-full" onClick={() => setShowDemoForm(true)}>
-              + Add Demo Visitor
+      {rosterFilter === "this_batch" && (unmarkedInRosterCount > 0 || markedInRosterCount > 0) && (
+        <div className={clsx("grid gap-2", unmarkedInRosterCount > 0 && markedInRosterCount > 0 ? "grid-cols-2" : "grid-cols-1")}>
+          {unmarkedInRosterCount > 0 && (
+            <button
+              className="btn border border-accent-green/40 bg-accent-green/10 text-white/80 hover:bg-accent-green/20"
+              onClick={markAllPresent}
+              disabled={markingAll || unmarkingAll}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-green text-xs font-bold text-base-900">
+                ✓
+              </span>
+              {markingAll ? "Marking…" : `Mark All Present (${unmarkedInRosterCount})`}
             </button>
           )}
-
-          {error && (
-            <div className="rounded-lg border border-status-expired/40 bg-status-expired/10 px-3 py-2 text-sm text-status-expired">
-              {error}
-            </div>
+          {markedInRosterCount > 0 && (
+            <button
+              className="btn border border-status-expired/40 bg-status-expired/10 text-white/80 hover:bg-status-expired/20"
+              onClick={unmarkAllPresent}
+              disabled={markingAll || unmarkingAll}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-expired text-xs font-bold text-base-900">
+                ✕
+              </span>
+              {unmarkingAll ? "Unmarking…" : `Unmark All (${markedInRosterCount})`}
+            </button>
           )}
-
-          <button className="btn-primary sticky bottom-4 w-full !py-4 text-base" onClick={submitAttendance} disabled={submitting}>
-            {submitting
-              ? "Saving…"
-              : editing
-              ? `Save Changes (${presentIds.size} present)`
-              : `Submit Attendance (${presentIds.size} present)`}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function LockedSummary({ record, members, onEdit }: { record: any; members: any[]; onEdit: () => void }) {
-  const presentEntries = (record.entries ?? []).filter((e: any) => e.present);
-  const presentSet = new Set(presentEntries.map((e: any) => e.member_id));
-  const demoVisitors = record.demo_visitors ?? [];
-
-  return (
-    <div className="space-y-4">
-      <div className="card p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white/60">
-            Present ({presentEntries.length}/{members.length})
-          </h3>
-          <button className="btn-secondary !py-1 text-xs" onClick={onEdit}>
-            Edit Attendance
-          </button>
         </div>
-        <ul className="divide-y divide-base-700">
-          {members
-            .filter((m) => presentSet.has(m.id))
-            .map((m) => (
-              <li key={m.id} className="flex items-center justify-between py-2">
-                <span className="font-semibold">{m.name}</span>
-                <StatusBadge status={m.status} />
-              </li>
-            ))}
-        </ul>
+      )}
+
+      <SearchBar value={search} onChange={setSearch} placeholder="Search any member by name or phone…" />
+
+      <div className="card divide-y divide-base-700">
+        {filteredMembers.length === 0 && (
+          <div className="px-4 py-8 text-center text-white/40">
+            {search
+              ? `No members match "${search}"`
+              : rosterFilter === "this_batch"
+              ? "No members are assigned to this batch. Switch to \"All Members\" to mark someone from another batch."
+              : isKidsBatch
+              ? "No members assigned to a kids batch yet."
+              : "No members to show."}
+          </div>
+        )}
+        {pageItems.map((member) => (
+          <MemberRow key={member.id} member={member} />
+        ))}
       </div>
+
+      <Pagination page={page} pageCount={pageCount} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} />
+
       {demoVisitors.length > 0 && (
         <div className="card p-4">
           <h3 className="mb-2 text-sm font-semibold text-white/60">Demo Visitors ({demoVisitors.length})</h3>
@@ -317,9 +465,42 @@ function LockedSummary({ record, members, onEdit }: { record: any; members: any[
           </ul>
         </div>
       )}
-      <p className="text-center text-xs text-white/30">
-        Submitted attendance can still be corrected today. It locks permanently after midnight for audit purposes.
-      </p>
+
+      {showDemoForm ? (
+        <div className="card space-y-3 p-4">
+          <h3 className="font-semibold">Add Demo Visitor</h3>
+          <input
+            className="input"
+            placeholder="Full name"
+            value={demoDraft.name}
+            onChange={(e) => setDemoDraft((d) => ({ ...d, name: e.target.value }))}
+          />
+          <input
+            className="input"
+            placeholder="Phone number"
+            value={demoDraft.phone}
+            onChange={(e) => setDemoDraft((d) => ({ ...d, phone: e.target.value }))}
+          />
+          <div className="flex gap-2">
+            <button className="btn-primary flex-1" onClick={addDemoVisitor} disabled={addingDemo}>
+              {addingDemo ? "Adding…" : "Add"}
+            </button>
+            <button className="btn-ghost" onClick={() => setShowDemoForm(false)} disabled={addingDemo}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn-secondary w-full" onClick={() => setShowDemoForm(true)}>
+          + Add Demo Visitor
+        </button>
+      )}
+
+      {pageError && (
+        <div className="rounded-lg border border-status-expired/40 bg-status-expired/10 px-3 py-2 text-sm text-status-expired">
+          {pageError}
+        </div>
+      )}
     </div>
   );
 }

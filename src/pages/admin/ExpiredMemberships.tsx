@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { exportToExcel } from "@/lib/xlsxExport";
 import { formatDate, planLabel } from "@/lib/utils";
+import { usePagination } from "@/hooks/usePagination";
+import { Pagination } from "@/components/ui/Pagination";
 
 export function ExpiredMemberships() {
   const [search, setSearch] = useState("");
@@ -20,6 +22,7 @@ export function ExpiredMemberships() {
   });
 
   const filtered = (members ?? []).filter((m: any) => m.name.toLowerCase().includes(search.toLowerCase()));
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(filtered);
 
   function handleExport() {
     exportToExcel(`expired-memberships-${new Date().toISOString().slice(0, 10)}.xlsx`, [
@@ -62,7 +65,7 @@ export function ExpiredMemberships() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((m: any) => (
+            {pageItems.map((m: any) => (
               <tr key={m.id} className="cursor-pointer bg-status-expired/5 hover:bg-status-expired/15">
                 <td>
                   <Link to={`/admin/members/${m.id}`} className="font-semibold text-status-expired hover:underline">
@@ -87,6 +90,8 @@ export function ExpiredMemberships() {
           </tbody>
         </table>
       </div>
+
+      <Pagination page={page} pageCount={pageCount} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} />
     </div>
   );
 }

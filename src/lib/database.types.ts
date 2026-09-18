@@ -22,6 +22,17 @@ export interface Profile {
   created_at: string;
 }
 
+export interface Branch {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface TrainerBranch {
+  trainer_id: string;
+  branch_id: string;
+}
+
 export interface Batch {
   id: string;
   name: string;
@@ -29,6 +40,7 @@ export interface Batch {
   time_slot: string;
   days: string;
   status: BatchStatus;
+  branch_id: string;
   created_at: string;
 }
 
@@ -41,13 +53,37 @@ export interface Member {
   id: string;
   name: string;
   phone: string;
+  email: string | null;
   photo_url: string | null;
   plan: MembershipPlan;
   start_date: string;
   expiry_date: string;
   notes: string | null;
+  branch_id: string;
+  sheet_person_no: number | null;
+  sheet_renewal_no: number;
+  total_fee: number | null;
+  cali_percent: number | null;
+  invoice_shared: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface Payment {
+  id: string;
+  member_id: string;
+  amount: number;
+  paid_date: string;
+  created_at: string;
+}
+
+export type PaymentStatus = "paid" | "partial" | "unpaid";
+
+export interface SheetSyncSettings {
+  id: "singleton";
+  apps_script_url: string | null;
+  apps_script_token: string | null;
+  next_person_no: number;
 }
 
 export interface MemberWithStatus extends Member {
@@ -63,6 +99,7 @@ export interface PTClient {
   id: string;
   member_id: string;
   trainer_id: string;
+  trainer_share_percent: number | null;
   created_at: string;
 }
 

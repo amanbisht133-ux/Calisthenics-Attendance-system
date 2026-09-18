@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { exportToExcel } from "@/lib/xlsxExport";
 import { formatDate } from "@/lib/utils";
+import { usePagination } from "@/hooks/usePagination";
+import { Pagination } from "@/components/ui/Pagination";
 import type { ExceptionReportRow } from "@/lib/database.types";
 
 export function ExceptionReport() {
@@ -35,6 +37,8 @@ export function ExceptionReport() {
     ]);
   }
 
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(rows ?? []);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -48,7 +52,7 @@ export function ExceptionReport() {
       </div>
 
       <div className="space-y-3">
-        {(rows ?? []).map((r) => (
+        {pageItems.map((r) => (
           <div key={r.member_id} className="card border-status-expired/30 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -77,6 +81,8 @@ export function ExceptionReport() {
           <p className="py-8 text-center text-white/40">No exceptions found — clean record. 🎉</p>
         )}
       </div>
+
+      <Pagination page={page} pageCount={pageCount} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} />
     </div>
   );
 }

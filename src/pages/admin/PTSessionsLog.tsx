@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDate, todayISO } from "@/lib/utils";
+import { usePagination } from "@/hooks/usePagination";
+import { Pagination } from "@/components/ui/Pagination";
 import type { Profile } from "@/lib/database.types";
 
 const startOfMonth = () => {
@@ -34,6 +36,8 @@ export function PTSessionsLog() {
       return data ?? [];
     },
   });
+
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(sessions ?? []);
 
   return (
     <div className="space-y-5">
@@ -72,7 +76,7 @@ export function PTSessionsLog() {
             </tr>
           </thead>
           <tbody>
-            {(sessions ?? []).map((s: any) => (
+            {pageItems.map((s: any) => (
               <tr key={s.id}>
                 <td>{formatDate(s.session_date)}</td>
                 <td className="font-semibold">{s.pt_client?.member?.name}</td>
@@ -90,6 +94,8 @@ export function PTSessionsLog() {
           </tbody>
         </table>
       </div>
+
+      <Pagination page={page} pageCount={pageCount} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} />
     </div>
   );
 }

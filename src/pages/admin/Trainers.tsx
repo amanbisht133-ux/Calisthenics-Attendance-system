@@ -2,20 +2,17 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { Modal } from "@/components/ui/Modal";
-import { SearchBar } from "@/components/ui/SearchBar";
-import type { Member } from "@/lib/database.types";
 
 export function Trainers() {
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
-  const [ptTrainer, setPtTrainer] = useState<any | null>(null);
 
   const { data: trainers, isLoading } = useQuery({
     queryKey: ["admin-trainers"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*, trainer_batches(batch:batches(id, name)), pt_clients(id, member:members(name))")
+        .select("*, trainer_branches(branch:branches(id, name)), pt_clients(id, member:members(name))")
         .eq("role", "trainer")
         .order("full_name");
       if (error) throw error;
@@ -40,15 +37,16 @@ export function Trainers() {
             <h3 className="font-bold">{t.full_name}</h3>
             <p className="text-sm text-white/50">{t.email}</p>
             <p className="mt-2 text-xs text-white/40">
-              {t.trainer_batches.length} batch{t.trainer_batches.length === 1 ? "" : "es"} · {t.pt_clients.length} PT client
+              {t.trainer_branches.length} branch{t.trainer_branches.length === 1 ? "" : "es"} · {t.pt_clients.length} PT client
               {t.pt_clients.length === 1 ? "" : "s"}
             </p>
             <div className="mt-1 text-xs text-white/60">
-              {t.trainer_batches.map((tb: any) => tb.batch?.name).join(", ") || "No batches assigned"}
+              {t.trainer_branches.map((tb: any) => tb.branch?.name).join(", ") || "No branch assigned"}
             </div>
-            <button className="btn-secondary mt-3 w-full !py-2 text-xs" onClick={() => setPtTrainer(t)}>
-              Manage PT Clients
-            </button>
+            <p className="mt-1 text-xs text-white/30">
+              Manage branch assignment under Admin → Branches. PT clients are assigned from a member's profile in
+              Admin → Members.
+            </p>
           </div>
         ))}
         {!isLoading && (trainers ?? []).length === 0 && (
@@ -63,14 +61,6 @@ export function Trainers() {
             setShowAdd(false);
             queryClient.invalidateQueries({ queryKey: ["admin-trainers"] });
           }}
-        />
-      )}
-
-      {ptTrainer && (
-        <ManagePTModal
-          trainer={ptTrainer}
-          onClose={() => setPtTrainer(null)}
-          onChanged={() => queryClient.invalidateQueries({ queryKey: ["admin-trainers"] })}
         />
       )}
     </div>
@@ -128,63 +118,6 @@ function AddTrainerModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <button className="btn-primary w-full" onClick={handleSubmit} disabled={saving}>
           {saving ? "Creating…" : "Create Trainer Account"}
         </button>
-      </div>
-    </Modal>
-  );
-}
-
-function ManagePTModal({ trainer, onClose, onChanged }: { trainer: any; onClose: () => void; onChanged: () => void }) {
-  const queryClient = useQueryClient();
-  const [search, setSearch] = useState("");
-
-  const { data: members } = useQuery({
-    queryKey: ["all-members-simple"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("members").select("*").order("name");
-      if (error) throw error;
-      return (data ?? []) as Member[];
-    },
-  });
-
-  const assignedMemberIds = new Set<string>();
-
-  const { data: ptRows } = useQuery({
-    queryKey: ["pt-clients-of", trainer.id],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("pt_clients").select("*").eq("trainer_id", trainer.id);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-  (ptRows ?? []).forEach((r: any) => assignedMemberIds.add(r.member_id));
-
-  async function toggle(memberId: string) {
-    if (assignedMemberIds.has(memberId)) {
-      await supabase.from("pt_clients").delete().eq("trainer_id", trainer.id).eq("member_id", memberId);
-    } else {
-      await supabase.from("pt_clients").insert({ trainer_id: trainer.id, member_id: memberId });
-    }
-    queryClient.invalidateQueries({ queryKey: ["pt-clients-of", trainer.id] });
-    onChanged();
-  }
-
-  const filtered = (members ?? []).filter((m) => m.name.toLowerCase().includes(search.toLowerCase()));
-
-  return (
-    <Modal title={`PT Clients — ${trainer.full_name}`} onClose={onClose} wide>
-      <div className="space-y-3">
-        <SearchBar value={search} onChange={setSearch} placeholder="Search members…" />
-        <div className="max-h-96 space-y-1 overflow-y-auto rounded-lg border border-base-600 p-2">
-          {filtered.map((m) => {
-            const assigned = assignedMemberIds.has(m.id);
-            return (
-              <label key={m.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-base-700">
-                <input type="checkbox" checked={assigned} onChange={() => toggle(m.id)} />
-                {m.name} <span className="text-white/30">· {m.phone}</span>
-              </label>
-            );
-          })}
-        </div>
       </div>
     </Modal>
   );

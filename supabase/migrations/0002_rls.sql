@@ -60,8 +60,8 @@ create policy "trainer_batches_admin_write" on public.trainer_batches for insert
 create policy "trainer_batches_admin_delete" on public.trainer_batches for delete using (public.is_admin());
 
 -- ----------------------------------------------------------------------------
--- MEMBERS — admin: full CRUD. Trainer: read-only, only members in their own
--- batches or PT roster.
+-- MEMBERS — admin: full CRUD. Trainer: read-only, all members (no per-trainer
+-- batch assignment gates visibility — see 0007_trainer_full_access.sql).
 -- ----------------------------------------------------------------------------
 create policy "members_admin_all"
   on public.members for all

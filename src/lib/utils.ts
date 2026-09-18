@@ -1,5 +1,5 @@
 import { addMonths, format, formatISO, parseISO } from "date-fns";
-import type { MembershipPlan, MemberStatus } from "./database.types";
+import type { Batch, MembershipPlan, MemberStatus, PaymentStatus } from "./database.types";
 
 export function planToMonths(plan: MembershipPlan): number {
   switch (plan) {
@@ -48,6 +48,10 @@ export function todayISO(): string {
   return formatISO(new Date(), { representation: "date" });
 }
 
+export function monthStartISO(asOf: Date = new Date()): string {
+  return formatISO(new Date(asOf.getFullYear(), asOf.getMonth(), 1), { representation: "date" });
+}
+
 const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** Supports "Mon-Fri" / "Sat-Sun" style ranges (wrapping across the week if needed). */
@@ -64,6 +68,59 @@ export function batchRunsToday(days: string, asOf: Date = new Date()): boolean {
     return todayIdx >= startIdx && todayIdx <= endIdx;
   }
   return todayIdx >= startIdx || todayIdx <= endIdx;
+}
+
+export type BatchTimeBucket = "morning" | "afternoon" | "evening" | "kids" | "other";
+
+export const BATCH_TIME_BUCKETS: { key: BatchTimeBucket; label: string; icon: string }[] = [
+  { key: "morning", label: "Morning", icon: "🌅" },
+  { key: "afternoon", label: "Afternoon", icon: "☀️" },
+  { key: "evening", label: "Evening", icon: "🌙" },
+  { key: "kids", label: "Kids", icon: "🧒" },
+  { key: "other", label: "Other", icon: "📋" },
+];
+
+/** Kids batches bucket by category regardless of time; everything else buckets by its time_slot's start hour. */
+export function batchTimeBucket(batch: Pick<Batch, "category" | "time_slot">): BatchTimeBucket {
+  if (batch.category === "kids") return "kids";
+
+  const match = batch.time_slot.match(/(\d{1,2})(?::\d{2})?\s*(am|pm)?/i);
+  if (!match) return "other";
+
+  let hour = parseInt(match[1], 10);
+  const meridiem = match[2]?.toLowerCase();
+  if (meridiem === "pm" && hour !== 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (!meridiem && hour >= 1 && hour <= 6) hour += 12; // e.g. "5:30-6:30" with no am/pm -> assume evening
+
+  if (hour < 12) return "morning";
+  if (hour < 17) return "afternoon";
+  return "evening";
+}
+
+/** Current time-of-day bucket, used to auto-expand the relevant accordion section. */
+export function currentTimeBucket(asOf: Date = new Date()): BatchTimeBucket {
+  const hour = asOf.getHours();
+  if (hour < 12) return "morning";
+  if (hour < 17) return "afternoon";
+  return "evening";
+}
+
+export function paymentStatus(totalFee: number | null, totalPaid: number): PaymentStatus {
+  if (!totalFee || totalPaid >= totalFee) return "paid";
+  if (totalPaid > 0) return "partial";
+  return "unpaid";
+}
+
+export function paymentStatusLabel(status: PaymentStatus): string {
+  switch (status) {
+    case "paid":
+      return "Paid";
+    case "partial":
+      return "Partially Paid";
+    case "unpaid":
+      return "Not Paid";
+  }
 }
 
 export function planLabel(plan: MembershipPlan): string {

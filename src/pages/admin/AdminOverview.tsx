@@ -3,9 +3,12 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { StatCard } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { useAttendanceRanking } from "@/hooks/useLeaderboard";
+import { Leaderboard } from "@/components/Leaderboard";
 import { formatDate, todayISO } from "@/lib/utils";
 
 export function AdminOverview() {
+  const { data: ranking, isLoading: rankingLoading } = useAttendanceRanking("all");
   const { data, isLoading } = useQuery({
     queryKey: ["admin-overview", todayISO()],
     queryFn: async () => {
@@ -94,6 +97,18 @@ export function AdminOverview() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="card !p-0">
+        <div className="flex items-center justify-between px-5 pt-5">
+          <h2 className="text-lg font-bold">🏆 Top Attendees This Month</h2>
+          <Link to="/admin/leaderboard" className="text-sm font-semibold text-accent-green hover:underline">
+            View full →
+          </Link>
+        </div>
+        <div className="mt-3">
+          <Leaderboard entries={ranking} isLoading={rankingLoading} limit={5} />
         </div>
       </div>
     </div>

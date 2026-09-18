@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { exportToExcel } from "@/lib/xlsxExport";
 import { formatDate, todayISO } from "@/lib/utils";
+import { usePagination } from "@/hooks/usePagination";
+import { Pagination } from "@/components/ui/Pagination";
 
 const startOfMonth = () => {
   const d = new Date();
@@ -31,6 +33,8 @@ export function DemoVisitors() {
     (acc[v.visit_date] ??= []).push(v);
     return acc;
   }, {});
+  const groupEntries = Object.entries(grouped);
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(groupEntries, 10);
 
   function handleExport() {
     exportToExcel(`demo-visitors-${from}_to_${to}.xlsx`, [
@@ -69,7 +73,7 @@ export function DemoVisitors() {
 
       {isLoading && <p className="text-white/50">Loading…</p>}
 
-      {Object.entries(grouped).map(([date, list]) => (
+      {pageItems.map(([date, list]) => (
         <div key={date} className="card p-4">
           <h3 className="mb-2 font-bold">{formatDate(date, "EEEE, dd MMM yyyy")}</h3>
           <table className="table-shell">
@@ -98,6 +102,8 @@ export function DemoVisitors() {
       {!isLoading && (visitors ?? []).length === 0 && (
         <p className="text-center text-white/40">No demo visitors in this range.</p>
       )}
+
+      <Pagination page={page} pageCount={pageCount} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={changePageSize} />
     </div>
   );
 }

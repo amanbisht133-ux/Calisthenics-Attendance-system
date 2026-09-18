@@ -2,16 +2,20 @@ import { NavLink, Outlet } from "react-router-dom";
 import clsx from "clsx";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 
 const links = [
   { to: "/admin", label: "Overview", end: true },
   { to: "/admin/members", label: "Members" },
+  { to: "/admin/branches", label: "Branches" },
   { to: "/admin/batches", label: "Batches" },
   { to: "/admin/trainers", label: "Trainers" },
   { to: "/admin/attendance", label: "Attendance Log" },
   { to: "/admin/demo-visitors", label: "Demo Visitors" },
   { to: "/admin/pt-sessions", label: "PT Sessions" },
   { to: "/admin/expired", label: "Expired Memberships" },
+  { to: "/admin/reminders", label: "Reminders" },
+  { to: "/admin/leaderboard", label: "🏆 Leaderboard" },
   { to: "/admin/exceptions", label: "Exception Report" },
   { to: "/admin/reports", label: "Reports" },
 ];
@@ -19,6 +23,7 @@ const links = [
 export function AdminLayout() {
   const { profile, signOut } = useAuth();
   const [navOpen, setNavOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   return (
     <div className="min-h-screen bg-base-900 lg:flex">
@@ -58,11 +63,16 @@ export function AdminLayout() {
         <div className="mt-6 border-t border-base-600 px-5 py-4">
           <div className="text-sm font-semibold text-white">{profile?.full_name}</div>
           <div className="text-xs text-white/50">{profile?.email}</div>
-          <button className="btn-ghost mt-3 w-full !px-3 !py-2 text-xs" onClick={signOut}>
+          <button className="btn-ghost mt-3 w-full !px-3 !py-2 text-xs" onClick={() => setChangingPassword(true)}>
+            Change Password
+          </button>
+          <button className="btn-ghost mt-2 w-full !px-3 !py-2 text-xs" onClick={signOut}>
             Sign out
           </button>
         </div>
       </aside>
+
+      {changingPassword && <ChangePasswordModal onClose={() => setChangingPassword(false)} />}
 
       {navOpen && (
         <div className="fixed inset-0 z-20 bg-black/60 lg:hidden" onClick={() => setNavOpen(false)} />

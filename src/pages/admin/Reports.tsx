@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { exportToExcel } from "@/lib/xlsxExport";
-import { formatDate, planLabel, todayISO } from "@/lib/utils";
-import type { Batch, Profile } from "@/lib/database.types";
+import { formatDate, memberStatus, planLabel, planToMonths, statusLabel, todayISO } from "@/lib/utils";
+import type { Batch, Branch, Profile } from "@/lib/database.types";
 
-type ReportTab = "monthly" | "exception" | "expired";
+type ReportTab = "monthly" | "exception" | "expired" | "full";
 
 export function Reports() {
   const [tab, setTab] = useState<ReportTab>("monthly");
@@ -20,6 +20,7 @@ export function Reports() {
             ["monthly", "Monthly Attendance"],
             ["exception", "Exception Report"],
             ["expired", "Weekly Expired List"],
+            ["full", "Full Client Report"],
           ] as [ReportTab, string][]
         ).map(([key, label]) => (
           <button
@@ -37,6 +38,7 @@ export function Reports() {
       {tab === "monthly" && <MonthlyAttendanceReport />}
       {tab === "exception" && <ExceptionExportPanel />}
       {tab === "expired" && <ExpiredExportPanel />}
+      {tab === "full" && <FullClientReportPanel />}
     </div>
   );
 }
@@ -231,6 +233,118 @@ function ExpiredExportPanel() {
       <button className="btn-secondary" onClick={handleExport}>
         Export to Excel
       </button>
+    </div>
+  );
+}
+
+function FullClientReportPanel() {
+  const [branchId, setBranchId] = useState("all");
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
+
+  const { data: rows, isLoading } = useQuery({
+    queryKey: ["full-client-report", branchId],
+    queryFn: async () => {
+      let query = supabase
+        .from("members")
+        .select(
+          "*, branch:branches(name), member_batches(batch:batches(name, category, time_slot, days)), pt_clients(trainer_share_percent, trainer:profiles(full_name)), payments(amount)"
+        )
+        .order("sheet_person_no", { ascending: true, nullsFirst: false });
+      if (branchId !== "all") query = query.eq("branch_id", branchId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  function buildRows() {
+    return (rows ?? []).map((m: any) => {
+      const status = memberStatus(m.expiry_date);
+      const totalFee = m.total_fee != null ? Number(m.total_fee) : null;
+      const totalPaid = (m.payments ?? []).reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+      const pt = m.pt_clients?.[0];
+      const batch = m.member_batches?.[0]?.batch;
+      const trainingType = pt ? `PT- ${pt.trainer?.full_name ?? "?"}` : batch ? "Group" : "—";
+      const morningEvening = pt
+        ? "—"
+        : batch?.category === "weekday_evening"
+        ? "Evening"
+        : batch?.category === "kids"
+        ? "Kids"
+        : batch?.category === "weekend"
+        ? "Weekend"
+        : batch
+        ? "Morning"
+        : "—";
+      const caliPercent = m.cali_percent != null ? Number(m.cali_percent) : null;
+      const caliRevenue = totalFee != null && caliPercent != null ? (totalFee * caliPercent) / 100 : null;
+      const ptRevenue =
+        pt && totalFee != null && pt.trainer_share_percent != null ? (totalFee * pt.trainer_share_percent) / 100 : 0;
+      const collectionStatus =
+        totalFee == null ? "—" : totalPaid >= totalFee ? "Paid" : totalPaid > 0 ? `Partially Paid (₹${totalPaid})` : "Yet to Pay";
+
+      return {
+        SNo: m.sheet_person_no != null ? (m.sheet_renewal_no > 1 ? `${m.sheet_person_no}.${m.sheet_renewal_no}` : String(m.sheet_person_no)) : "",
+        Name: m.name,
+        "Phone Number": m.phone,
+        "Email ID": m.email ?? "",
+        Branch: m.branch?.name ?? "",
+        "Membership start date": formatDate(m.start_date),
+        "Membership end date": formatDate(m.expiry_date),
+        Status: statusLabel(status),
+        "Membership month": planToMonths(m.plan),
+        "Total Fees": totalFee ?? "",
+        "Collection Status": collectionStatus,
+        "Training Type": trainingType,
+        "Morning/Evening": morningEvening,
+        Batch: batch ? `${batch.name} (${batch.time_slot})` : "",
+        "Cali %": caliPercent ?? "",
+        "Cali Revenue": caliRevenue != null ? Math.round(caliRevenue) : "",
+        "PT Trainer Rev": pt ? Math.round(ptRevenue) : "",
+        "Invoice Shared?": m.invoice_shared ? "Yes" : "No",
+      };
+    });
+  }
+
+  function handleExport() {
+    exportToExcel(`full-client-report-${todayISO()}.xlsx`, [{ sheetName: "Client List", rows: buildRows() }]);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label">Branch</label>
+          <select className="input" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button className="btn-secondary" onClick={handleExport} disabled={isLoading}>
+          Export to Excel
+        </button>
+      </div>
+      <p className="text-sm text-white/50">
+        {isLoading
+          ? "Loading…"
+          : `${rows?.length ?? 0} members — matches your tracking sheet's columns (SNo, contact info, membership dates, fees, collection status, training type, batch, Cali %, revenue split, invoice shared).`}
+      </p>
+      <p className="text-xs text-white/30">
+        Note: this exports each member's current state (one row per person), not the sheet's per-renewal-term row
+        history — full payment history per member is still available on their profile page.
+      </p>
     </div>
   );
 }
