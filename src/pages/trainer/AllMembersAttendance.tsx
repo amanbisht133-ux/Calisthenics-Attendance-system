@@ -9,8 +9,10 @@ import { StatCard } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePagination } from "@/hooks/usePagination";
 import { useState } from "react";
-import { todayISO, formatDate } from "@/lib/utils";
+import { todayISO, daysAgoISO, formatDate } from "@/lib/utils";
 import type { MemberWithStatus } from "@/lib/database.types";
+
+const EDIT_WINDOW_DAYS = 6; // plus today = 7 days total, matching the trainer RLS window
 
 type MemberWithBatch = MemberWithStatus & {
   batchId: string | null;
@@ -22,6 +24,7 @@ export function AllMembersAttendance() {
   const { selectedBranchId } = useBranch();
   const [date, setDate] = useState(todayISO());
   const isToday = date === todayISO();
+  const isEditable = date >= daysAgoISO(EDIT_WINDOW_DAYS);
 
   const { data: members, isLoading: membersLoading } = useAllMembers(selectedBranchId ?? undefined);
 
@@ -72,6 +75,8 @@ export function AllMembersAttendance() {
               </Link>{" "}
               to mark attendance.
             </>
+          ) : isEditable ? (
+            `Attendance for ${formatDate(date, "EEEE, dd MMM yyyy")} — anyone not marked present is Absent. Open that day's batch to make corrections (edits are allowed up to 7 days back).`
           ) : (
             `Attendance for ${formatDate(date, "EEEE, dd MMM yyyy")} is final — anyone not marked present is Absent.`
           )}

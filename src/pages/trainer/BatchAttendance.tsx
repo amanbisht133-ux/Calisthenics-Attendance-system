@@ -4,33 +4,35 @@ import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useAuth } from "@/context/AuthContext";
 import { useBranch } from "@/context/BranchContext";
-import { useAllMembers, useAllBatches, useTodaysAttendanceMap, useTodaysAttendanceRecord } from "@/hooks/useTrainerData";
+import { useAllMembers, useAllBatches, useAttendanceMapForDate, useAttendanceRecordForDate } from "@/hooks/useTrainerData";
 import { supabase } from "@/lib/supabaseClient";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { StatCard } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { usePagination } from "@/hooks/usePagination";
-import { todayISO, formatDate } from "@/lib/utils";
+import { todayISO, daysAgoISO, formatDate } from "@/lib/utils";
+
+const EDIT_WINDOW_DAYS = 6; // plus today = 7 days total, matching the trainer RLS window
 
 interface DemoVisitorDraft {
   name: string;
   phone: string;
 }
 
-async function ensureRecordId(batchId: string, trainerId: string): Promise<string> {
+async function ensureRecordId(batchId: string, trainerId: string, date: string): Promise<string> {
   const { data: existing } = await supabase
     .from("attendance_records")
     .select("id")
     .eq("batch_id", batchId)
     .eq("trainer_id", trainerId)
-    .eq("session_date", todayISO())
+    .eq("session_date", date)
     .limit(1);
   if (existing && existing.length > 0) return existing[0].id;
 
   const { data: created, error } = await supabase
     .from("attendance_records")
-    .insert({ batch_id: batchId, trainer_id: trainerId, session_date: todayISO() })
+    .insert({ batch_id: batchId, trainer_id: trainerId, session_date: date })
     .select("id")
     .single();
   if (error) throw error;
@@ -48,8 +50,11 @@ export function BatchAttendance() {
   // trainer is actually running, not the member's own assigned batch.
   const { data: members, isLoading } = useAllMembers(selectedBranchId ?? undefined);
   const { data: batches } = useAllBatches(selectedBranchId ?? undefined);
-  const { data: existingRecord, isLoading: recordLoading } = useTodaysAttendanceRecord(batchId, profile?.id);
-  const { data: presenceMap = new Map(), isLoading: presenceLoading } = useTodaysAttendanceMap(profile?.id);
+  const minEditableDate = daysAgoISO(EDIT_WINDOW_DAYS);
+  const [date, setDate] = useState(todayISO());
+  const isToday = date === todayISO();
+  const { data: existingRecord, isLoading: recordLoading } = useAttendanceRecordForDate(batchId, profile?.id, date);
+  const { data: presenceMap = new Map(), isLoading: presenceLoading } = useAttendanceMapForDate(profile?.id, date);
 
   const currentBatch = batches?.find((b) => b.id === batchId);
   const batchNameById = new Map((batches ?? []).map((b) => [b.id, b.name]));
@@ -163,7 +168,7 @@ export function BatchAttendance() {
         }
       } else {
         if (!recordIdRef.current) {
-          recordIdRef.current = await ensureRecordId(batchId, profile.id);
+          recordIdRef.current = await ensureRecordId(batchId, profile.id, date);
         }
         const { data, error } = await supabase
           .from("attendance_entries")
@@ -201,7 +206,7 @@ export function BatchAttendance() {
     setPageError(null);
     try {
       if (!recordIdRef.current) {
-        recordIdRef.current = await ensureRecordId(batchId, profile.id);
+        recordIdRef.current = await ensureRecordId(batchId, profile.id, date);
       }
       const { data, error } = await supabase
         .from("attendance_entries")
@@ -264,13 +269,13 @@ export function BatchAttendance() {
     setPageError(null);
     try {
       if (!recordIdRef.current) {
-        recordIdRef.current = await ensureRecordId(batchId, profile.id);
+        recordIdRef.current = await ensureRecordId(batchId, profile.id, date);
       }
       const { error } = await supabase.from("demo_visitors").insert({
         attendance_record_id: recordIdRef.current,
         name: demoDraft.name,
         phone: demoDraft.phone,
-        visit_date: todayISO(),
+        visit_date: date,
       });
       if (error) throw error;
       setDemoDraft({ name: "", phone: "" });
@@ -359,7 +364,21 @@ export function BatchAttendance() {
             ← Back to today
           </Link>
           <h1 className="mt-1 text-2xl font-bold">{currentBatch ? currentBatch.name : "Mark Attendance"}</h1>
-          <p className="text-sm text-white/50">{formatDate(todayISO(), "EEEE, dd MMM yyyy")}</p>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="date"
+              className="input !w-auto !py-1.5 text-sm"
+              value={date}
+              min={minEditableDate}
+              max={todayISO()}
+              onChange={(e) => setDate(e.target.value)}
+            />
+            {!isToday && (
+              <button className="btn-ghost !py-1.5 text-xs" onClick={() => setDate(todayISO())}>
+                Jump to today
+              </button>
+            )}
+          </div>
         </div>
         <span className="rounded-full border border-accent-green/40 bg-accent-green/10 px-3 py-1.5 text-xs font-semibold text-accent-green">
           {presentIds.size} present in current batch
@@ -367,11 +386,17 @@ export function BatchAttendance() {
       </div>
 
       <p className="text-xs text-white/30">
-        Tap a member to mark them present or absent — it saves instantly, no submit step needed. Corrections stay open until end of day.
+        {isToday
+          ? "Tap a member to mark them present or absent — it saves instantly, no submit step needed."
+          : `Editing ${formatDate(date, "EEEE, dd MMM yyyy")} — corrections are allowed up to 7 days back.`}
       </p>
 
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label={rosterFilter === "all" ? "Present Today (All Batches)" : "Present"} value={scorecardPresent} accent="green" />
+        <StatCard
+          label={rosterFilter === "all" ? (isToday ? "Present Today (All Batches)" : "Present That Day (All Batches)") : "Present"}
+          value={scorecardPresent}
+          accent="green"
+        />
         <StatCard label="Absent" value={scorecardTotal - scorecardPresent} accent="red" />
       </div>
 

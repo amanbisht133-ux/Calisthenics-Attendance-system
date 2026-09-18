@@ -48,6 +48,12 @@ export function todayISO(): string {
   return formatISO(new Date(), { representation: "date" });
 }
 
+export function daysAgoISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return formatISO(d, { representation: "date" });
+}
+
 export function monthStartISO(asOf: Date = new Date()): string {
   return formatISO(new Date(asOf.getFullYear(), asOf.getMonth(), 1), { representation: "date" });
 }

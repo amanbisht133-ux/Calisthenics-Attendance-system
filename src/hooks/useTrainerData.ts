@@ -113,9 +113,13 @@ export function useTodaysAttendanceMap(trainerId: string | undefined) {
   return useAttendanceMapForDate(trainerId, todayISO());
 }
 
-export function useTodaysAttendanceRecord(batchId: string | undefined, trainerId: string | undefined) {
+export function useAttendanceRecordForDate(
+  batchId: string | undefined,
+  trainerId: string | undefined,
+  date: string
+) {
   return useQuery({
-    queryKey: ["attendance-record", batchId, trainerId, todayISO()],
+    queryKey: ["attendance-record", batchId, trainerId, date],
     enabled: !!batchId && !!trainerId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -123,10 +127,14 @@ export function useTodaysAttendanceRecord(batchId: string | undefined, trainerId
         .select("*, entries:attendance_entries(*), demo_visitors(*)")
         .eq("batch_id", batchId)
         .eq("trainer_id", trainerId)
-        .eq("session_date", todayISO())
+        .eq("session_date", date)
         .maybeSingle();
       if (error) throw error;
       return data;
     },
   });
+}
+
+export function useTodaysAttendanceRecord(batchId: string | undefined, trainerId: string | undefined) {
+  return useAttendanceRecordForDate(batchId, trainerId, todayISO());
 }
