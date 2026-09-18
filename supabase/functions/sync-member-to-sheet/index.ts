@@ -32,25 +32,8 @@ Deno.serve(async (req) => {
     if (profileError) throw profileError;
     if (callerProfile.role !== "admin") throw new Error("Only admins can sync to the sheet.");
 
-    const {
-      sno,
-      name,
-      phone,
-      email,
-      start_date,
-      end_date,
-      status,
-      membership_months,
-      total_fee,
-      collection_status,
-      training_type,
-      morning_evening,
-      batch,
-      cali_percent,
-      cali_revenue,
-      pt_trainer_rev,
-      invoice_shared,
-    } = await req.json();
+    const payload = await req.json();
+    const { sno, name, phone, start_date, end_date, status, membership_months } = payload;
     if (!sno || !name || !phone || !start_date || !end_date || !status || !membership_months) {
       throw new Error("sno, name, phone, start_date, end_date, status and membership_months are required.");
     }
@@ -67,24 +50,8 @@ Deno.serve(async (req) => {
     }
 
     const requestBody = JSON.stringify({
+      ...payload,
       token: settings.apps_script_token,
-      sno,
-      name,
-      phone,
-      email: email ?? "",
-      start_date,
-      end_date,
-      status,
-      membership_months,
-      total_fee: total_fee ?? "",
-      collection_status: collection_status ?? "",
-      training_type: training_type ?? "",
-      morning_evening: morning_evening ?? "",
-      batch: batch ?? "",
-      cali_percent: cali_percent ?? "",
-      cali_revenue: cali_revenue ?? "",
-      pt_trainer_rev: pt_trainer_rev ?? 0,
-      invoice_shared: invoice_shared ?? false,
     });
 
     // Google can return a stale/error response right after a new Apps Script

@@ -86,11 +86,9 @@ export const BATCH_TIME_BUCKETS: { key: BatchTimeBucket; label: string; icon: st
   { key: "other", label: "Other", icon: "📋" },
 ];
 
-/** Kids batches bucket by category regardless of time; everything else buckets by its time_slot's start hour. */
-export function batchTimeBucket(batch: Pick<Batch, "category" | "time_slot">): BatchTimeBucket {
-  if (batch.category === "kids") return "kids";
-
-  const match = batch.time_slot.match(/(\d{1,2})(?::\d{2})?\s*(am|pm)?/i);
+/** Parses a free-form time_slot string (e.g. "7:00 - 8:00 PM") into which part of the day it starts in. */
+export function timeSlotPeriod(timeSlot: string): "morning" | "afternoon" | "evening" | "other" {
+  const match = timeSlot.match(/(\d{1,2})(?::\d{2})?\s*(am|pm)?/i);
   if (!match) return "other";
 
   let hour = parseInt(match[1], 10);
@@ -100,7 +98,7 @@ export function batchTimeBucket(batch: Pick<Batch, "category" | "time_slot">): B
   // right after the start hour where the regex above looks — fall back to
   // scanning the whole string, since a slot almost always shares one period.
   if (!meridiem) {
-    meridiem = batch.time_slot.match(/\b(am|pm)\b/i)?.[1]?.toLowerCase();
+    meridiem = timeSlot.match(/\b(am|pm)\b/i)?.[1]?.toLowerCase();
   }
 
   if (meridiem === "pm" && hour !== 12) hour += 12;
@@ -110,6 +108,12 @@ export function batchTimeBucket(batch: Pick<Batch, "category" | "time_slot">): B
   if (hour < 12) return "morning";
   if (hour < 17) return "afternoon";
   return "evening";
+}
+
+/** Kids batches bucket by category regardless of time; everything else buckets by its time_slot's start hour. */
+export function batchTimeBucket(batch: Pick<Batch, "category" | "time_slot">): BatchTimeBucket {
+  if (batch.category === "kids") return "kids";
+  return timeSlotPeriod(batch.time_slot);
 }
 
 /** Current time-of-day bucket, used to auto-expand the relevant accordion section. */

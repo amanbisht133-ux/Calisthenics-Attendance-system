@@ -51,13 +51,21 @@ function doPost(e) {
 			return jsonResponse({ ok: true, deduped: true });
 		}
 
-		// Columns A-Q: SNo, Name, Phone Number, Email ID, Membership start date,
+		// Columns A-AC: SNo, Name, Phone Number, Email ID, Membership start date,
 		// Membership end date, Status, Membership month, Total Fees, Collection
 		// Status, Training Type, Morning/Evening, Batch, Cali %, Cali Revenue,
-		// PT Trainer Rev, Invoice Shared. Adjust the column order below if your
-		// sheet's layout differs.
+		// PT Trainer Rev, Invoice Shared, then Jan-Dec monthly fee breakdown.
+		// Adjust the column order below if your sheet's layout differs.
 		var invoiceShared =
 			payload.invoice_shared === true || payload.invoice_shared === "Yes";
+		var monthOrder = [
+			"jan", "feb", "mar", "apr", "may", "jun",
+			"jul", "aug", "sep", "oct", "nov", "dec",
+		];
+		var monthValues = monthOrder.map(function (key) {
+			var v = payload["month_" + key];
+			return v === "" || v === undefined || v === null ? "" : Number(v);
+		});
 		var row = [
 			payload.sno,
 			payload.name,
@@ -72,11 +80,11 @@ function doPost(e) {
 			payload.training_type || "",
 			payload.morning_evening || "",
 			payload.batch || "",
-			payload.cali_percent === "" ? "" : Number(payload.cali_percent),
+			"", // Cali % -- written below after forcing the cell to plain text, so it's never reinterpreted as a number
 			payload.cali_revenue === "" ? "" : Number(payload.cali_revenue),
 			payload.pt_trainer_rev,
 			invoiceShared,
-		];
+		].concat(monthValues);
 
 		sheet.appendRow(row);
 
@@ -86,8 +94,14 @@ function doPost(e) {
 		// format for the columns that need it explicitly, on the row just added.
 		var rowIndex = sheet.getLastRow();
 		sheet.getRange(rowIndex, 5, 1, 2).setNumberFormat("MM/dd/yyyy"); // start date, end date
+		// Format-then-value (not value-then-format): changing format on a cell
+		// that already holds a number just changes how that number displays, it
+		// doesn't undo an earlier misinterpretation. Setting Plain Text first
+		// means the value below is stored as literal text, never as a number
+		// Sheets could later rescale (the original cause of "100%" -> "10000%").
 		var caliCell = sheet.getRange(rowIndex, 14); // Cali %
-		caliCell.setNumberFormat('0"%"');
+		caliCell.setNumberFormat("@");
+		caliCell.setValue(payload.cali_percent === "" ? "" : payload.cali_percent + "%");
 		var invoiceCell = sheet.getRange(rowIndex, 17); // Invoice Shared
 		invoiceCell.insertCheckboxes();
 		invoiceCell.setValue(invoiceShared);
