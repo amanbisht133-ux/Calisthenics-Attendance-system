@@ -94,7 +94,15 @@ export function batchTimeBucket(batch: Pick<Batch, "category" | "time_slot">): B
   if (!match) return "other";
 
   let hour = parseInt(match[1], 10);
-  const meridiem = match[2]?.toLowerCase();
+  let meridiem: string | undefined = match[2]?.toLowerCase();
+
+  // Ranges like "7:00 - 8:00 PM" only carry AM/PM on the end time, not
+  // right after the start hour where the regex above looks — fall back to
+  // scanning the whole string, since a slot almost always shares one period.
+  if (!meridiem) {
+    meridiem = batch.time_slot.match(/\b(am|pm)\b/i)?.[1]?.toLowerCase();
+  }
+
   if (meridiem === "pm" && hour !== 12) hour += 12;
   if (meridiem === "am" && hour === 12) hour = 0;
   if (!meridiem && hour >= 1 && hour <= 6) hour += 12; // e.g. "5:30-6:30" with no am/pm -> assume evening
