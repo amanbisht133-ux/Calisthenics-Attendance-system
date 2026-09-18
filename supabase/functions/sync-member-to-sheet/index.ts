@@ -66,41 +66,61 @@ Deno.serve(async (req) => {
       throw new Error("Spreadsheet sync isn't configured yet — set the Apps Script URL in Spreadsheet Sync settings.");
     }
 
-    const resp = await fetch(settings.apps_script_url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token: settings.apps_script_token,
-        sno,
-        name,
-        phone,
-        email: email ?? "",
-        start_date,
-        end_date,
-        status,
-        membership_months,
-        total_fee: total_fee ?? "",
-        collection_status: collection_status ?? "",
-        training_type: training_type ?? "",
-        morning_evening: morning_evening ?? "",
-        batch: batch ?? "",
-        cali_percent: cali_percent ?? "",
-        cali_revenue: cali_revenue ?? "",
-        pt_trainer_rev: pt_trainer_rev ?? 0,
-        invoice_shared: invoice_shared ?? false,
-      }),
+    const requestBody = JSON.stringify({
+      token: settings.apps_script_token,
+      sno,
+      name,
+      phone,
+      email: email ?? "",
+      start_date,
+      end_date,
+      status,
+      membership_months,
+      total_fee: total_fee ?? "",
+      collection_status: collection_status ?? "",
+      training_type: training_type ?? "",
+      morning_evening: morning_evening ?? "",
+      batch: batch ?? "",
+      cali_percent: cali_percent ?? "",
+      cali_revenue: cali_revenue ?? "",
+      pt_trainer_rev: pt_trainer_rev ?? 0,
+      invoice_shared: invoice_shared ?? false,
     });
 
-    const bodyText = await resp.text();
-    if (!resp.ok) throw new Error(`Sheet sync failed (${resp.status}): ${bodyText}`);
+    // Google can return a stale/error response right after a new Apps Script
+    // deployment even though the script itself executed correctly — retry
+    // once after a short delay. This is safe: the sheet's own dedupe check
+    // (matching on sno) means a retry can never append a duplicate row even
+    // if the first attempt actually succeeded server-side.
+    async function callSheet(): Promise<{ ok: true } | { ok: false; error: string }> {
+      try {
+        const resp = await fetch(settings.apps_script_url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+        });
+        const bodyText = await resp.text();
+        if (!resp.ok) return { ok: false, error: `Sheet sync failed (${resp.status}): ${bodyText}` };
 
-    let body: any;
-    try {
-      body = JSON.parse(bodyText);
-    } catch {
-      throw new Error(`Sheet returned an unexpected response: ${bodyText.slice(0, 200)}`);
+        let body: any;
+        try {
+          body = JSON.parse(bodyText);
+        } catch {
+          return { ok: false, error: `Sheet returned an unexpected response: ${bodyText.slice(0, 200)}` };
+        }
+        if (!body.ok) return { ok: false, error: body.error ?? "Sheet sync failed." };
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
     }
-    if (!body.ok) throw new Error(body.error ?? "Sheet sync failed.");
+
+    let result = await callSheet();
+    if (!result.ok) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      result = await callSheet();
+    }
+    if (!result.ok) throw new Error(result.error);
 
     return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
