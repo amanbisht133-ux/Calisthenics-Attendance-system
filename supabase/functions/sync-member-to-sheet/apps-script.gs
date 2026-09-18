@@ -32,20 +32,29 @@ function doPost(e) {
 
     var sheet = getTargetSheet();
 
-    // Columns A-H: SNo, Name, Phone Number, Email ID, Membership start date,
-    // Membership end date, Status, Membership month. Email (D) is left blank
-    // -- the app doesn't collect it. Everything from column I onward (fees,
-    // collection status, training type, revenue splits, monthly breakdown)
-    // is left blank for manual entry.
+    // Columns A-Q: SNo, Name, Phone Number, Email ID, Membership start date,
+    // Membership end date, Status, Membership month, Total Fees, Collection
+    // Status, Training Type, Morning/Evening, Batch, Cali %, Cali Revenue,
+    // PT Trainer Rev, Invoice Shared. Adjust the column order below if your
+    // sheet's layout differs.
     var row = [
       payload.sno,
       payload.name,
       payload.phone,
-      "",
+      payload.email || "",
       parseDate(payload.start_date),
       parseDate(payload.end_date),
       payload.status,
       payload.membership_months,
+      payload.total_fee || "",
+      payload.collection_status || "",
+      payload.training_type || "",
+      payload.morning_evening || "",
+      payload.batch || "",
+      payload.cali_percent || "",
+      payload.cali_revenue || "",
+      payload.pt_trainer_rev || "",
+      payload.invoice_shared || "",
     ];
 
     sheet.appendRow(row);

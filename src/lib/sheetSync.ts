@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabaseClient";
 import { todayISO } from "@/lib/utils";
 import { extractFunctionErrorMessage } from "@/lib/edgeFunctions";
-import type { MembershipPlan } from "@/lib/database.types";
+import type { BatchCategory, MembershipPlan } from "@/lib/database.types";
 
 const PLAN_MONTHS: Record<MembershipPlan, number> = {
   monthly: 1,
@@ -13,11 +13,46 @@ interface SyncableMember {
   id: string;
   name: string;
   phone: string;
+  email: string | null;
   start_date: string;
   expiry_date: string;
   plan: MembershipPlan;
   sheet_person_no: number | null;
   sheet_renewal_no: number;
+  total_fee: number | null;
+  cali_percent: number | null;
+  invoice_shared: boolean | null;
+}
+
+export interface SheetSyncExtras {
+  // Total paid to date across every payment on record (not just this transaction).
+  totalPaid: number;
+  trainingType: "group" | "pt";
+  batch?: { name: string; time_slot: string; category: BatchCategory } | null;
+  trainerName?: string | null;
+  trainerSharePercent?: number | null;
+}
+
+function morningEveningLabel(category: BatchCategory | undefined): string {
+  switch (category) {
+    case "weekday_evening":
+      return "Evening";
+    case "kids":
+      return "Kids";
+    case "weekend":
+      return "Weekend";
+    case "weekday_morning":
+      return "Morning";
+    default:
+      return "—";
+  }
+}
+
+function collectionStatusLabel(totalFee: number | null, totalPaid: number): string {
+  if (totalFee == null) return "—";
+  if (totalPaid >= totalFee) return "Paid";
+  if (totalPaid > 0) return `Partially Paid (₹${totalPaid})`;
+  return "Yet to Pay";
 }
 
 // Appends one row to the admin's Google Sheet for a new signup or a renewal.
@@ -28,7 +63,8 @@ interface SyncableMember {
 // unreachable or not yet configured.
 export async function syncMemberToSheet(
   member: SyncableMember,
-  isRenewal: boolean
+  isRenewal: boolean,
+  extras: SheetSyncExtras
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     let personNo = member.sheet_person_no;
@@ -57,15 +93,37 @@ export async function syncMemberToSheet(
     const sno = renewalNo === 1 ? String(personNo) : `${personNo}.${renewalNo}`;
     const status = member.expiry_date < todayISO() ? "Expired" : "Active";
 
+    const totalFee = member.total_fee;
+    const caliPercent = member.cali_percent;
+    const caliRevenue = totalFee != null && caliPercent != null ? Math.round((totalFee * caliPercent) / 100) : null;
+    const ptRevenue =
+      extras.trainingType === "pt" && totalFee != null && extras.trainerSharePercent != null
+        ? Math.round((totalFee * extras.trainerSharePercent) / 100)
+        : null;
+    const trainingTypeLabel =
+      extras.trainingType === "pt" ? `PT- ${extras.trainerName ?? "?"}` : extras.batch ? "Group" : "—";
+    const morningEvening = extras.trainingType === "pt" ? "—" : morningEveningLabel(extras.batch?.category);
+    const batchLabel = extras.batch ? `${extras.batch.name} (${extras.batch.time_slot})` : "";
+
     const { data, error: fnError } = await supabase.functions.invoke("sync-member-to-sheet", {
       body: {
         sno,
         name: member.name,
         phone: member.phone,
+        email: member.email ?? "",
         start_date: member.start_date,
         end_date: member.expiry_date,
         status,
         membership_months: PLAN_MONTHS[member.plan],
+        total_fee: totalFee ?? "",
+        collection_status: collectionStatusLabel(totalFee, extras.totalPaid),
+        training_type: trainingTypeLabel,
+        morning_evening: morningEvening,
+        batch: batchLabel,
+        cali_percent: caliPercent ?? "",
+        cali_revenue: caliRevenue ?? "",
+        pt_trainer_rev: ptRevenue ?? "",
+        invoice_shared: member.invoice_shared ? "Yes" : "No",
       },
     });
     if (fnError) throw new Error(await extractFunctionErrorMessage(fnError, "Failed to call sync-member-to-sheet."));

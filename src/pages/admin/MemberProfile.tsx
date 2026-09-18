@@ -695,7 +695,7 @@ function RenewModal({ member, onClose, onRenewed }: { member: any; onClose: () =
   useState(() => {
     supabase
       .from("batches")
-      .select("id, name, time_slot, days")
+      .select("id, name, time_slot, days, category")
       .eq("status", "active")
       .eq("branch_id", member.branch?.id)
       .order("name")
@@ -774,7 +774,23 @@ function RenewModal({ member, onClose, onRenewed }: { member: any; onClose: () =
         }
       }
 
-      const sync = await syncMemberToSheet(updated, true);
+      const { data: allPayments, error: paymentsError } = await supabase
+        .from("payments")
+        .select("amount")
+        .eq("member_id", member.id);
+      if (paymentsError) throw paymentsError;
+      const totalPaid = (allPayments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+
+      const selectedBatch = trainingType === "group" ? batches.find((b) => b.id === selectedBatchId) ?? null : null;
+      const trainerName = trainingType === "pt" ? trainers.find((t) => t.id === ptTrainerId)?.full_name ?? null : null;
+
+      const sync = await syncMemberToSheet(updated, true, {
+        totalPaid,
+        trainingType,
+        batch: selectedBatch,
+        trainerName,
+        trainerSharePercent: shareValue,
+      });
       if (!sync.ok) {
         setSheetWarning(sync.error);
         setSaving(false);

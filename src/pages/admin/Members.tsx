@@ -401,7 +401,20 @@ function AddMemberModal({
         if (ptError) throw ptError;
       }
 
-      const sync = await syncMemberToSheet(member, false);
+      const selectedBatch =
+        trainingType === "group"
+          ? batchesInBranch.find((b) => b.id === Array.from(selectedBatches)[0]) ?? null
+          : null;
+      const trainerName =
+        trainingType === "pt" ? trainersInBranch?.find((t) => t.id === ptTrainerId)?.full_name ?? null : null;
+
+      const sync = await syncMemberToSheet(member, false, {
+        totalPaid: paidAmount,
+        trainingType,
+        batch: selectedBatch,
+        trainerName,
+        trainerSharePercent: shareValue,
+      });
       if (!sync.ok) {
         setSheetWarning(sync.error);
         setSaving(false);

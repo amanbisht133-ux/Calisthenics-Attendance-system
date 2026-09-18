@@ -1,8 +1,7 @@
 // Called after Add Member / Renew Membership. Appends one row to the admin's
 // Google Sheet (via an Apps Script Web App configured in sheet_sync_settings)
-// mirroring only the fields the app tracks — everything else in the sheet
-// (fees, collection status, training type, revenue) is left for the admin to
-// fill in manually.
+// mirroring every field the app tracks, including fees, collection status,
+// training type, and revenue splits.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
 
@@ -33,7 +32,25 @@ Deno.serve(async (req) => {
     if (profileError) throw profileError;
     if (callerProfile.role !== "admin") throw new Error("Only admins can sync to the sheet.");
 
-    const { sno, name, phone, start_date, end_date, status, membership_months } = await req.json();
+    const {
+      sno,
+      name,
+      phone,
+      email,
+      start_date,
+      end_date,
+      status,
+      membership_months,
+      total_fee,
+      collection_status,
+      training_type,
+      morning_evening,
+      batch,
+      cali_percent,
+      cali_revenue,
+      pt_trainer_rev,
+      invoice_shared,
+    } = await req.json();
     if (!sno || !name || !phone || !start_date || !end_date || !status || !membership_months) {
       throw new Error("sno, name, phone, start_date, end_date, status and membership_months are required.");
     }
@@ -57,10 +74,20 @@ Deno.serve(async (req) => {
         sno,
         name,
         phone,
+        email: email ?? "",
         start_date,
         end_date,
         status,
         membership_months,
+        total_fee: total_fee ?? "",
+        collection_status: collection_status ?? "",
+        training_type: training_type ?? "",
+        morning_evening: morning_evening ?? "",
+        batch: batch ?? "",
+        cali_percent: cali_percent ?? "",
+        cali_revenue: cali_revenue ?? "",
+        pt_trainer_rev: pt_trainer_rev ?? "",
+        invoice_shared: invoice_shared ?? "",
       }),
     });
 
