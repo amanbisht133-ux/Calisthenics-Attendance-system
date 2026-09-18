@@ -37,6 +37,7 @@ function doPost(e) {
     // Status, Training Type, Morning/Evening, Batch, Cali %, Cali Revenue,
     // PT Trainer Rev, Invoice Shared. Adjust the column order below if your
     // sheet's layout differs.
+    var invoiceShared = payload.invoice_shared === true || payload.invoice_shared === "Yes";
     var row = [
       payload.sno,
       payload.name,
@@ -51,13 +52,25 @@ function doPost(e) {
       payload.training_type || "",
       payload.morning_evening || "",
       payload.batch || "",
-      payload.cali_percent || "",
-      payload.cali_revenue || "",
-      payload.pt_trainer_rev || "",
-      payload.invoice_shared || "",
+      payload.cali_percent === "" ? "" : Number(payload.cali_percent),
+      payload.cali_revenue === "" ? "" : Number(payload.cali_revenue),
+      payload.pt_trainer_rev,
+      invoiceShared,
     ];
 
     sheet.appendRow(row);
+
+    // appendRow inherits whatever format the column already has, which can
+    // misrender specific types (a Date cell showing a time, a plain number in
+    // a Percent-formatted column reading as 100x too large). Pin down the
+    // format for the columns that need it explicitly, on the row just added.
+    var rowIndex = sheet.getLastRow();
+    sheet.getRange(rowIndex, 5, 1, 2).setNumberFormat("MM/dd/yyyy"); // start date, end date
+    var caliCell = sheet.getRange(rowIndex, 14); // Cali %
+    caliCell.setNumberFormat("0\"%\"");
+    var invoiceCell = sheet.getRange(rowIndex, 17); // Invoice Shared
+    invoiceCell.insertCheckboxes();
+    invoiceCell.setValue(invoiceShared);
 
     return jsonResponse({ ok: true });
   } catch (err) {

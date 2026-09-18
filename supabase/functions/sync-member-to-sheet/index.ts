@@ -86,8 +86,8 @@ Deno.serve(async (req) => {
         batch: batch ?? "",
         cali_percent: cali_percent ?? "",
         cali_revenue: cali_revenue ?? "",
-        pt_trainer_rev: pt_trainer_rev ?? "",
-        invoice_shared: invoice_shared ?? "",
+        pt_trainer_rev: pt_trainer_rev ?? 0,
+        invoice_shared: invoice_shared ?? false,
       }),
     });
 

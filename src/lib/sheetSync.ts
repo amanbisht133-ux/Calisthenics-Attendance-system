@@ -33,16 +33,32 @@ export interface SheetSyncExtras {
   trainerSharePercent?: number | null;
 }
 
-function morningEveningLabel(category: BatchCategory | undefined): string {
-  switch (category) {
-    case "weekday_evening":
-      return "Evening";
+// Training Type is the gym's own real-world category, not the app's internal
+// group/PT split: PT stays "PT", kids and weekend batches get their own
+// label, and every other (weekday morning/evening) batch is just "Group" —
+// the Morning/Evening column next to it carries the time-of-day split.
+function trainingTypeLabel(extras: SheetSyncExtras): string {
+  if (extras.trainingType === "pt") return "PT";
+  if (!extras.batch) return "—";
+  switch (extras.batch.category) {
     case "kids":
-      return "Kids";
+      return "Kids Batch";
     case "weekend":
       return "Weekend";
+    default:
+      return "Group";
+  }
+}
+
+// Only meaningful for plain weekday Group batches — Kids/Weekend/PT already
+// say what they are in the Training Type column, so this is left blank.
+function morningEveningLabel(extras: SheetSyncExtras): string {
+  if (extras.trainingType === "pt" || !extras.batch) return "—";
+  switch (extras.batch.category) {
     case "weekday_morning":
       return "Morning";
+    case "weekday_evening":
+      return "Evening";
     default:
       return "—";
   }
@@ -96,14 +112,12 @@ export async function syncMemberToSheet(
     const totalFee = member.total_fee;
     const caliPercent = member.cali_percent;
     const caliRevenue = totalFee != null && caliPercent != null ? Math.round((totalFee * caliPercent) / 100) : null;
+    // Always a number, not blank — 0 for Group members or when no share % is on file.
     const ptRevenue =
       extras.trainingType === "pt" && totalFee != null && extras.trainerSharePercent != null
         ? Math.round((totalFee * extras.trainerSharePercent) / 100)
-        : null;
-    const trainingTypeLabel =
-      extras.trainingType === "pt" ? `PT- ${extras.trainerName ?? "?"}` : extras.batch ? "Group" : "—";
-    const morningEvening = extras.trainingType === "pt" ? "—" : morningEveningLabel(extras.batch?.category);
-    const batchLabel = extras.batch ? `${extras.batch.name} (${extras.batch.time_slot})` : "";
+        : 0;
+    const batchLabel = extras.batch ? extras.batch.time_slot : "";
 
     const { data, error: fnError } = await supabase.functions.invoke("sync-member-to-sheet", {
       body: {
@@ -117,13 +131,13 @@ export async function syncMemberToSheet(
         membership_months: PLAN_MONTHS[member.plan],
         total_fee: totalFee ?? "",
         collection_status: collectionStatusLabel(totalFee, extras.totalPaid),
-        training_type: trainingTypeLabel,
-        morning_evening: morningEvening,
+        training_type: trainingTypeLabel(extras),
+        morning_evening: morningEveningLabel(extras),
         batch: batchLabel,
         cali_percent: caliPercent ?? "",
         cali_revenue: caliRevenue ?? "",
-        pt_trainer_rev: ptRevenue ?? "",
-        invoice_shared: member.invoice_shared ? "Yes" : "No",
+        pt_trainer_rev: ptRevenue,
+        invoice_shared: !!member.invoice_shared,
       },
     });
     if (fnError) throw new Error(await extractFunctionErrorMessage(fnError, "Failed to call sync-member-to-sheet."));
