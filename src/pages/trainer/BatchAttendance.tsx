@@ -10,7 +10,6 @@ import { SearchBar } from "@/components/ui/SearchBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { StatCard } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
-import { Modal } from "@/components/ui/Modal";
 import { usePagination } from "@/hooks/usePagination";
 import { todayISO, daysAgoISO, formatDate } from "@/lib/utils";
 
@@ -416,31 +415,47 @@ export function BatchAttendance() {
       )}
 
       {showMarkAllConfirm && (
-        <Modal title="Mark all present?" onClose={() => setShowMarkAllConfirm(false)}>
-          <div className="space-y-5">
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-green/15 text-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
+          onClick={() => !markingAll && setShowMarkAllConfirm(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl bg-base-800 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-base-600 sm:hidden" />
+
+            <div className="flex flex-col items-center gap-3 text-center">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-green/15 text-2xl">
                 ✓
               </span>
-              <p className="text-sm text-white/70">
-                This will mark{" "}
-                <span className="font-semibold text-white">
-                  {unmarkedInRosterCount} member{unmarkedInRosterCount === 1 ? "" : "s"}
-                </span>{" "}
-                as present in <span className="font-semibold text-white">{currentBatch?.name ?? "this batch"}</span>{" "}
-                for {isToday ? "today" : formatDate(date, "EEEE, dd MMM yyyy")}.
-              </p>
+              <div>
+                <h2 className="text-lg font-bold">Mark all present?</h2>
+                <p className="mt-1.5 text-sm text-white/60">
+                  This will mark{" "}
+                  <span className="font-semibold text-white">
+                    {unmarkedInRosterCount} member{unmarkedInRosterCount === 1 ? "" : "s"}
+                  </span>{" "}
+                  present in <span className="font-semibold text-white">{currentBatch?.name ?? "this batch"}</span> for{" "}
+                  {isToday ? "today" : formatDate(date, "EEEE, dd MMM yyyy")}.
+                </p>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button className="btn-ghost" onClick={() => setShowMarkAllConfirm(false)} disabled={markingAll}>
-                Cancel
-              </button>
-              <button className="btn-primary" onClick={markAllPresent} disabled={markingAll}>
+
+            <div className="mt-5 flex flex-col gap-2">
+              <button className="btn-primary w-full py-3" onClick={markAllPresent} disabled={markingAll}>
                 {markingAll ? "Marking…" : "Yes, mark all present"}
+              </button>
+              <button
+                className="btn-ghost w-full py-3"
+                onClick={() => setShowMarkAllConfirm(false)}
+                disabled={markingAll}
+              >
+                Cancel
               </button>
             </div>
           </div>
-        </Modal>
+        </div>
       )}
 
       <SearchBar value={search} onChange={setSearch} placeholder="Search any member by name or phone…" />
