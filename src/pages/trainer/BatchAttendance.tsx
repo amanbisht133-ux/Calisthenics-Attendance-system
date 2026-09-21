@@ -335,7 +335,12 @@ export function BatchAttendance() {
               <div className="text-xs text-yellow-500/60">No batch assigned</div>
             )}
           </div>
-          <StatusBadge status={member.status} />
+          <div className="flex shrink-0 flex-col items-end gap-0.5">
+            <StatusBadge status={member.status} />
+            {member.status === "expired" && (
+              <span className="text-[10px] text-status-expired/70">Exp {formatDate(member.expiry_date)}</span>
+            )}
+          </div>
         </label>
         {presentElsewhere && (
           <Link

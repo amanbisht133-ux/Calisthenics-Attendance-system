@@ -134,7 +134,12 @@ export function AllMembersAttendance() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={member.status} />
+                  <div className="flex flex-col items-start gap-0.5">
+                    <StatusBadge status={member.status} />
+                    {member.status === "expired" && (
+                      <span className="text-[10px] text-status-expired/70">Exp {formatDate(member.expiry_date)}</span>
+                    )}
+                  </div>
 
                   <span
                     className={clsx(
