@@ -67,7 +67,6 @@ export function BatchAttendance() {
   const [entryIdByMember, setEntryIdByMember] = useState<Map<string, string>>(new Map());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [markingAll, setMarkingAll] = useState(false);
-  const [unmarkingAll, setUnmarkingAll] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [showDemoForm, setShowDemoForm] = useState(false);
   const [demoDraft, setDemoDraft] = useState<DemoVisitorDraft>({ name: "", phone: "" });
@@ -111,7 +110,6 @@ export function BatchAttendance() {
   const rosterMembers =
     rosterFilter === "this_batch" ? actionableMembers.filter((m) => m.batchId === batchId) : actionableMembers;
   const unmarkedInRosterCount = rosterMembers.filter((m) => !presentIds.has(m.id)).length;
-  const markedInRosterCount = rosterMembers.length - unmarkedInRosterCount;
 
   // In "All Members" mode, also surface who's already accounted for
   // elsewhere today — visible for reference, but not actionable from here.
@@ -201,6 +199,10 @@ export function BatchAttendance() {
     if (!batchId || !profile) return;
     const toMark = rosterMembers.filter((m) => !presentIds.has(m.id));
     if (toMark.length === 0) return;
+    const confirmed = window.confirm(
+      `Mark all ${toMark.length} member${toMark.length === 1 ? "" : "s"} as present?`
+    );
+    if (!confirmed) return;
 
     setMarkingAll(true);
     setPageError(null);
@@ -229,37 +231,6 @@ export function BatchAttendance() {
       setPageError(e.message ?? "Failed to mark everyone present.");
     } finally {
       setMarkingAll(false);
-    }
-  }
-
-  async function unmarkAllPresent() {
-    const toUnmark = rosterMembers.filter((m) => presentIds.has(m.id));
-    if (toUnmark.length === 0) return;
-
-    setUnmarkingAll(true);
-    setPageError(null);
-    try {
-      const entryIds = toUnmark.map((m) => entryIdByMember.get(m.id)).filter((id): id is string => !!id);
-      if (entryIds.length > 0) {
-        const { error } = await supabase.from("attendance_entries").delete().in("id", entryIds);
-        if (error) throw error;
-      }
-
-      setPresentIds((prev) => {
-        const next = new Set(prev);
-        toUnmark.forEach((m) => next.delete(m.id));
-        return next;
-      });
-      setEntryIdByMember((prev) => {
-        const next = new Map(prev);
-        toUnmark.forEach((m) => next.delete(m.id));
-        return next;
-      });
-      await invalidateAll();
-    } catch (e: any) {
-      setPageError(e.message ?? "Failed to unmark everyone.");
-    } finally {
-      setUnmarkingAll(false);
     }
   }
 
@@ -432,33 +403,17 @@ export function BatchAttendance() {
         </button>
       </div>
 
-      {rosterFilter === "this_batch" && (unmarkedInRosterCount > 0 || markedInRosterCount > 0) && (
-        <div className={clsx("grid gap-2", unmarkedInRosterCount > 0 && markedInRosterCount > 0 ? "grid-cols-2" : "grid-cols-1")}>
-          {unmarkedInRosterCount > 0 && (
-            <button
-              className="btn border border-accent-green/40 bg-accent-green/10 text-white/80 hover:bg-accent-green/20"
-              onClick={markAllPresent}
-              disabled={markingAll || unmarkingAll}
-            >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-green text-xs font-bold text-base-900">
-                ✓
-              </span>
-              {markingAll ? "Marking…" : `Mark All Present (${unmarkedInRosterCount})`}
-            </button>
-          )}
-          {markedInRosterCount > 0 && (
-            <button
-              className="btn border border-status-expired/40 bg-status-expired/10 text-white/80 hover:bg-status-expired/20"
-              onClick={unmarkAllPresent}
-              disabled={markingAll || unmarkingAll}
-            >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-expired text-xs font-bold text-base-900">
-                ✕
-              </span>
-              {unmarkingAll ? "Unmarking…" : `Unmark All (${markedInRosterCount})`}
-            </button>
-          )}
-        </div>
+      {rosterFilter === "this_batch" && unmarkedInRosterCount > 0 && (
+        <button
+          className="btn w-full border border-accent-green/40 bg-accent-green/10 text-white/80 hover:bg-accent-green/20"
+          onClick={markAllPresent}
+          disabled={markingAll}
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-green text-xs font-bold text-base-900">
+            ✓
+          </span>
+          {markingAll ? "Marking…" : `Mark All Present (${unmarkedInRosterCount})`}
+        </button>
       )}
 
       <SearchBar value={search} onChange={setSearch} placeholder="Search any member by name or phone…" />
