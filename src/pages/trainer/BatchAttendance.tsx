@@ -10,6 +10,7 @@ import { SearchBar } from "@/components/ui/SearchBar";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { StatCard } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
+import { Modal } from "@/components/ui/Modal";
 import { usePagination } from "@/hooks/usePagination";
 import { todayISO, daysAgoISO, formatDate } from "@/lib/utils";
 
@@ -67,6 +68,7 @@ export function BatchAttendance() {
   const [entryIdByMember, setEntryIdByMember] = useState<Map<string, string>>(new Map());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [markingAll, setMarkingAll] = useState(false);
+  const [showMarkAllConfirm, setShowMarkAllConfirm] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [showDemoForm, setShowDemoForm] = useState(false);
   const [demoDraft, setDemoDraft] = useState<DemoVisitorDraft>({ name: "", phone: "" });
@@ -199,11 +201,8 @@ export function BatchAttendance() {
     if (!batchId || !profile) return;
     const toMark = rosterMembers.filter((m) => !presentIds.has(m.id));
     if (toMark.length === 0) return;
-    const confirmed = window.confirm(
-      `Mark all ${toMark.length} member${toMark.length === 1 ? "" : "s"} as present?`
-    );
-    if (!confirmed) return;
 
+    setShowMarkAllConfirm(false);
     setMarkingAll(true);
     setPageError(null);
     try {
@@ -406,7 +405,7 @@ export function BatchAttendance() {
       {rosterFilter === "this_batch" && unmarkedInRosterCount > 0 && (
         <button
           className="btn w-full border border-accent-green/40 bg-accent-green/10 text-white/80 hover:bg-accent-green/20"
-          onClick={markAllPresent}
+          onClick={() => setShowMarkAllConfirm(true)}
           disabled={markingAll}
         >
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-green text-xs font-bold text-base-900">
@@ -414,6 +413,34 @@ export function BatchAttendance() {
           </span>
           {markingAll ? "Marking…" : `Mark All Present (${unmarkedInRosterCount})`}
         </button>
+      )}
+
+      {showMarkAllConfirm && (
+        <Modal title="Mark all present?" onClose={() => setShowMarkAllConfirm(false)}>
+          <div className="space-y-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-green/15 text-xl">
+                ✓
+              </span>
+              <p className="text-sm text-white/70">
+                This will mark{" "}
+                <span className="font-semibold text-white">
+                  {unmarkedInRosterCount} member{unmarkedInRosterCount === 1 ? "" : "s"}
+                </span>{" "}
+                as present in <span className="font-semibold text-white">{currentBatch?.name ?? "this batch"}</span>{" "}
+                for {isToday ? "today" : formatDate(date, "EEEE, dd MMM yyyy")}.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button className="btn-ghost" onClick={() => setShowMarkAllConfirm(false)} disabled={markingAll}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={markAllPresent} disabled={markingAll}>
+                {markingAll ? "Marking…" : "Yes, mark all present"}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       <SearchBar value={search} onChange={setSearch} placeholder="Search any member by name or phone…" />
