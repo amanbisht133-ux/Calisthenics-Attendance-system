@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
@@ -39,6 +39,63 @@ async function ensureRecordId(batchId: string, trainerId: string, date: string):
   return created.id;
 }
 
+function ConfirmSheet({
+  icon,
+  iconClassName,
+  title,
+  message,
+  confirmLabel,
+  confirmingLabel,
+  confirmClassName,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  icon: string;
+  iconClassName: string;
+  title: string;
+  message: ReactNode;
+  confirmLabel: string;
+  confirmingLabel: string;
+  confirmClassName: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
+      onClick={() => !busy && onCancel()}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl bg-base-800 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-base-600 sm:hidden" />
+
+        <div className="flex flex-col items-center gap-3 text-center">
+          <span className={clsx("flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl", iconClassName)}>
+            {icon}
+          </span>
+          <div>
+            <h2 className="text-lg font-bold">{title}</h2>
+            <p className="mt-1.5 text-sm text-white/60">{message}</p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-col gap-2">
+          <button className={clsx("w-full py-3", confirmClassName)} onClick={onConfirm} disabled={busy}>
+            {busy ? confirmingLabel : confirmLabel}
+          </button>
+          <button className="btn-ghost w-full py-3" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function BatchAttendance() {
   const { batchId } = useParams<{ batchId: string }>();
   const { profile } = useAuth();
@@ -67,7 +124,9 @@ export function BatchAttendance() {
   const [entryIdByMember, setEntryIdByMember] = useState<Map<string, string>>(new Map());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [markingAll, setMarkingAll] = useState(false);
+  const [unmarkingAll, setUnmarkingAll] = useState(false);
   const [showMarkAllConfirm, setShowMarkAllConfirm] = useState(false);
+  const [showUnmarkAllConfirm, setShowUnmarkAllConfirm] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [showDemoForm, setShowDemoForm] = useState(false);
   const [demoDraft, setDemoDraft] = useState<DemoVisitorDraft>({ name: "", phone: "" });
@@ -111,6 +170,7 @@ export function BatchAttendance() {
   const rosterMembers =
     rosterFilter === "this_batch" ? actionableMembers.filter((m) => m.batchId === batchId) : actionableMembers;
   const unmarkedInRosterCount = rosterMembers.filter((m) => !presentIds.has(m.id)).length;
+  const markedInRosterCount = rosterMembers.length - unmarkedInRosterCount;
 
   // In "All Members" mode, also surface who's already accounted for
   // elsewhere today — visible for reference, but not actionable from here.
@@ -229,6 +289,38 @@ export function BatchAttendance() {
       setPageError(e.message ?? "Failed to mark everyone present.");
     } finally {
       setMarkingAll(false);
+    }
+  }
+
+  async function unmarkAllPresent() {
+    const toUnmark = rosterMembers.filter((m) => presentIds.has(m.id));
+    if (toUnmark.length === 0) return;
+
+    setShowUnmarkAllConfirm(false);
+    setUnmarkingAll(true);
+    setPageError(null);
+    try {
+      const entryIds = toUnmark.map((m) => entryIdByMember.get(m.id)).filter((id): id is string => !!id);
+      if (entryIds.length > 0) {
+        const { error } = await supabase.from("attendance_entries").delete().in("id", entryIds);
+        if (error) throw error;
+      }
+
+      setPresentIds((prev) => {
+        const next = new Set(prev);
+        toUnmark.forEach((m) => next.delete(m.id));
+        return next;
+      });
+      setEntryIdByMember((prev) => {
+        const next = new Map(prev);
+        toUnmark.forEach((m) => next.delete(m.id));
+        return next;
+      });
+      await invalidateAll();
+    } catch (e: any) {
+      setPageError(e.message ?? "Failed to unmark everyone.");
+    } finally {
+      setUnmarkingAll(false);
     }
   }
 
@@ -401,61 +493,81 @@ export function BatchAttendance() {
         </button>
       </div>
 
-      {rosterFilter === "this_batch" && unmarkedInRosterCount > 0 && (
-        <button
-          className="btn w-full border border-accent-green/40 bg-accent-green/10 text-white/80 hover:bg-accent-green/20"
-          onClick={() => setShowMarkAllConfirm(true)}
-          disabled={markingAll}
-        >
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-green text-xs font-bold text-base-900">
-            ✓
-          </span>
-          {markingAll ? "Marking…" : `Mark All Present (${unmarkedInRosterCount})`}
-        </button>
+      {rosterFilter === "this_batch" && (unmarkedInRosterCount > 0 || markedInRosterCount > 0) && (
+        <div className={clsx("grid gap-2", unmarkedInRosterCount > 0 && markedInRosterCount > 0 ? "grid-cols-2" : "grid-cols-1")}>
+          {unmarkedInRosterCount > 0 && (
+            <button
+              className="btn border border-accent-green/40 bg-accent-green/10 text-white/80 hover:bg-accent-green/20"
+              onClick={() => setShowMarkAllConfirm(true)}
+              disabled={markingAll || unmarkingAll}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-green text-xs font-bold text-base-900">
+                ✓
+              </span>
+              {markingAll ? "Marking…" : `Mark All Present (${unmarkedInRosterCount})`}
+            </button>
+          )}
+          {markedInRosterCount > 0 && (
+            <button
+              className="btn border border-status-expired/40 bg-status-expired/10 text-white/80 hover:bg-status-expired/20"
+              onClick={() => setShowUnmarkAllConfirm(true)}
+              disabled={markingAll || unmarkingAll}
+            >
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-expired text-xs font-bold text-base-900">
+                ✕
+              </span>
+              {unmarkingAll ? "Unmarking…" : `Unmark All (${markedInRosterCount})`}
+            </button>
+          )}
+        </div>
       )}
 
       {showMarkAllConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
-          onClick={() => !markingAll && setShowMarkAllConfirm(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-t-2xl bg-base-800 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-base-600 sm:hidden" />
+        <ConfirmSheet
+          icon="✓"
+          iconClassName="bg-accent-green/15"
+          title="Mark all present?"
+          message={
+            <>
+              This will mark{" "}
+              <span className="font-semibold text-white">
+                {unmarkedInRosterCount} member{unmarkedInRosterCount === 1 ? "" : "s"}
+              </span>{" "}
+              present in <span className="font-semibold text-white">{currentBatch?.name ?? "this batch"}</span> for{" "}
+              {isToday ? "today" : formatDate(date, "EEEE, dd MMM yyyy")}.
+            </>
+          }
+          confirmLabel="Yes, mark all present"
+          confirmingLabel="Marking…"
+          confirmClassName="btn-primary"
+          busy={markingAll}
+          onConfirm={markAllPresent}
+          onCancel={() => setShowMarkAllConfirm(false)}
+        />
+      )}
 
-            <div className="flex flex-col items-center gap-3 text-center">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-green/15 text-2xl">
-                ✓
-              </span>
-              <div>
-                <h2 className="text-lg font-bold">Mark all present?</h2>
-                <p className="mt-1.5 text-sm text-white/60">
-                  This will mark{" "}
-                  <span className="font-semibold text-white">
-                    {unmarkedInRosterCount} member{unmarkedInRosterCount === 1 ? "" : "s"}
-                  </span>{" "}
-                  present in <span className="font-semibold text-white">{currentBatch?.name ?? "this batch"}</span> for{" "}
-                  {isToday ? "today" : formatDate(date, "EEEE, dd MMM yyyy")}.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-col gap-2">
-              <button className="btn-primary w-full py-3" onClick={markAllPresent} disabled={markingAll}>
-                {markingAll ? "Marking…" : "Yes, mark all present"}
-              </button>
-              <button
-                className="btn-ghost w-full py-3"
-                onClick={() => setShowMarkAllConfirm(false)}
-                disabled={markingAll}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
+      {showUnmarkAllConfirm && (
+        <ConfirmSheet
+          icon="✕"
+          iconClassName="bg-status-expired/15"
+          title="Unmark everyone?"
+          message={
+            <>
+              This will remove <span className="font-semibold text-white">
+                {markedInRosterCount} member{markedInRosterCount === 1 ? "" : "s"}
+              </span>{" "}
+              from <span className="font-semibold text-white">{currentBatch?.name ?? "this batch"}</span>'s attendance
+              for {isToday ? "today" : formatDate(date, "EEEE, dd MMM yyyy")}. This can't be undone in bulk — you'd have to
+              re-mark them one by one.
+            </>
+          }
+          confirmLabel="Yes, unmark all"
+          confirmingLabel="Unmarking…"
+          confirmClassName="btn-danger"
+          busy={unmarkingAll}
+          onConfirm={unmarkAllPresent}
+          onCancel={() => setShowUnmarkAllConfirm(false)}
+        />
       )}
 
       <SearchBar value={search} onChange={setSearch} placeholder="Search any member by name or phone…" />
