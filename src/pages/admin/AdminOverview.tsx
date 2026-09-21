@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -6,40 +7,86 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useAttendanceRanking } from "@/hooks/useLeaderboard";
 import { Leaderboard } from "@/components/Leaderboard";
 import { formatDate, todayISO } from "@/lib/utils";
+import type { Branch } from "@/lib/database.types";
 
 export function AdminOverview() {
-  const { data: ranking, isLoading: rankingLoading } = useAttendanceRanking("all");
+  const [branchFilter, setBranchFilter] = useState<string>("all");
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
+
+  const { data: ranking, isLoading: rankingLoading } = useAttendanceRanking(branchFilter);
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-overview", todayISO()],
+    queryKey: ["admin-overview", todayISO(), branchFilter],
     queryFn: async () => {
       const today = todayISO();
 
-      const [active, expiring, expired, recordsToday, demoToday, recentExpired] = await Promise.all([
-        supabase.from("v_member_status").select("id", { count: "exact", head: true }).eq("status", "active"),
-        supabase.from("v_member_status").select("id", { count: "exact", head: true }).eq("status", "expiring_soon"),
-        supabase.from("v_member_status").select("id", { count: "exact", head: true }).eq("status", "expired"),
-        supabase.from("attendance_records").select("id").eq("session_date", today),
-        supabase.from("demo_visitors").select("id", { count: "exact", head: true }).eq("visit_date", today),
-        supabase.from("v_expired_members").select("*").limit(5),
+      // Scope everything to one branch's batches when a specific branch is selected.
+      let batchIds: string[] | null = null;
+      if (branchFilter !== "all") {
+        const { data: batchRows, error: batchError } = await supabase
+          .from("batches")
+          .select("id")
+          .eq("branch_id", branchFilter);
+        if (batchError) throw batchError;
+        batchIds = (batchRows ?? []).map((b) => b.id);
+      }
+
+      let memberStatusQuery = supabase.from("v_member_status").select("id, status");
+      if (branchFilter !== "all") memberStatusQuery = memberStatusQuery.eq("branch_id", branchFilter);
+
+      let expiredQuery = supabase.from("v_expired_members").select("*").limit(5);
+      if (branchFilter !== "all") expiredQuery = expiredQuery.eq("branch_id", branchFilter);
+
+      let recordsTodayQuery = supabase.from("attendance_records").select("id").eq("session_date", today);
+      if (batchIds) recordsTodayQuery = recordsTodayQuery.in("batch_id", batchIds);
+
+      const [memberStatus, recordsToday, recentExpired] = await Promise.all([
+        memberStatusQuery,
+        recordsTodayQuery,
+        expiredQuery,
       ]);
+      if (memberStatus.error) throw memberStatus.error;
+      if (recordsToday.error) throw recordsToday.error;
+      if (recentExpired.error) throw recentExpired.error;
+
+      const statusRows = memberStatus.data ?? [];
+      const activeCount = statusRows.filter((r) => r.status === "active").length;
+      const expiringCount = statusRows.filter((r) => r.status === "expiring_soon").length;
+      const expiredCount = statusRows.filter((r) => r.status === "expired").length;
 
       const recordIds = (recordsToday.data ?? []).map((r) => r.id);
       let attendanceTodayCount = 0;
+      let demoTodayCount = 0;
       if (recordIds.length > 0) {
-        const { count } = await supabase
-          .from("attendance_entries")
-          .select("id", { count: "exact", head: true })
-          .eq("present", true)
-          .in("attendance_record_id", recordIds);
-        attendanceTodayCount = count ?? 0;
+        const [{ count: presentCount }, { count: demoCount }] = await Promise.all([
+          supabase
+            .from("attendance_entries")
+            .select("id", { count: "exact", head: true })
+            .eq("present", true)
+            .in("attendance_record_id", recordIds),
+          supabase
+            .from("demo_visitors")
+            .select("id", { count: "exact", head: true })
+            .eq("visit_date", today)
+            .in("attendance_record_id", recordIds),
+        ]);
+        attendanceTodayCount = presentCount ?? 0;
+        demoTodayCount = demoCount ?? 0;
       }
 
       return {
-        activeCount: active.count ?? 0,
-        expiringCount: expiring.count ?? 0,
-        expiredCount: expired.count ?? 0,
+        activeCount,
+        expiringCount,
+        expiredCount,
         attendanceTodayCount,
-        demoTodayCount: demoToday.count ?? 0,
+        demoTodayCount,
         recentExpired: recentExpired.data ?? [],
       };
     },
@@ -47,9 +94,22 @@ export function AdminOverview() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">Overview</h1>
-        <p className="text-sm text-white/50">{formatDate(todayISO(), "EEEE, dd MMM yyyy")}</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Overview</h1>
+          <p className="text-sm text-white/50">{formatDate(todayISO(), "EEEE, dd MMM yyyy")}</p>
+        </div>
+        <div className="w-full sm:w-auto">
+          <label className="label">Branch</label>
+          <select className="input sm:w-52" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
