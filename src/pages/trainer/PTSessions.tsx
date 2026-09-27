@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
+import { useBranch } from "@/context/BranchContext";
 import { usePTClients } from "@/hooks/useTrainerData";
 import { supabase } from "@/lib/supabaseClient";
 import { SearchBar } from "@/components/ui/SearchBar";
@@ -10,8 +11,9 @@ import { memberStatus } from "@/lib/utils";
 
 export function PTSessions() {
   const { profile } = useAuth();
+  const { selectedBranchId } = useBranch();
   const queryClient = useQueryClient();
-  const { data: clients, isLoading } = usePTClients(profile?.id);
+  const { data: clients, isLoading } = usePTClients(profile?.id, selectedBranchId ?? undefined);
   const [search, setSearch] = useState("");
   const [markingId, setMarkingId] = useState<string | null>(null);
 

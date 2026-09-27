@@ -61,15 +61,19 @@ export function useAllMembers(branchId: string | undefined) {
   });
 }
 
-export function usePTClients(trainerId: string | undefined) {
+// A trainer can be assigned to more than one branch, and their PT clients
+// span whichever branch each client belongs to — scope to the branch
+// currently selected in the trainer UI, not every branch this trainer has.
+export function usePTClients(trainerId: string | undefined, branchId: string | undefined) {
   return useQuery({
-    queryKey: ["pt-clients", trainerId],
-    enabled: !!trainerId,
+    queryKey: ["pt-clients", trainerId, branchId],
+    enabled: !!trainerId && !!branchId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pt_clients")
-        .select("*, member:members(*)")
-        .eq("trainer_id", trainerId);
+        .select("*, member:members!inner(*)")
+        .eq("trainer_id", trainerId)
+        .eq("member.branch_id", branchId);
       if (error) throw error;
       return (data ?? []) as (PTClient & { member: MemberWithStatus })[];
     },

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
@@ -39,18 +39,14 @@ export function Reminders() {
     },
   });
 
+  // Nobody is pre-selected — sending to this many people is consequential
+  // enough that it should always be a deliberate choice, not a default an
+  // admin could click through without noticing.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showConfirm, setShowConfirm] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // Default-select everyone who has an email, whenever the list (re)loads.
-  useEffect(() => {
-    if (members) {
-      setSelected(new Set(members.filter((m) => m.email).map((m) => m.id)));
-    }
-  }, [members]);
 
   function toggle(id: string) {
     setSelected((prev) => {

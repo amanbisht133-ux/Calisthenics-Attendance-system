@@ -14,7 +14,7 @@ export function TrainerDashboard() {
   const { profile } = useAuth();
   const { selectedBranchId } = useBranch();
   const { data: batches, isLoading: batchesLoading } = useAllBatches(selectedBranchId ?? undefined);
-  const { data: ptClients, isLoading: ptLoading } = usePTClients(profile?.id);
+  const { data: ptClients, isLoading: ptLoading } = usePTClients(profile?.id, selectedBranchId ?? undefined);
   const { data: ranking, isLoading: rankingLoading } = useAttendanceRanking(selectedBranchId ?? undefined);
   const [openBucket, setOpenBucket] = useState<BatchTimeBucket | null>(currentTimeBucket());
 
