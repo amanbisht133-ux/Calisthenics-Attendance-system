@@ -78,7 +78,7 @@ export function DemoVisitors() {
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <label className="label">From</label>
           <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -105,28 +105,46 @@ export function DemoVisitors() {
       {pageItems.map(([date, list]) => (
         <div key={date} className="card p-4">
           <h3 className="mb-2 font-bold">{formatDate(date, "EEEE, dd MMM yyyy")}</h3>
-          <table className="table-shell">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Branch</th>
-                <th>Batch</th>
-                <th>Trainer</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((v) => (
-                <tr key={v.id}>
-                  <td className="font-semibold">{v.name}</td>
-                  <td>{v.phone}</td>
-                  <td>{v.attendance_record?.batch?.branch?.name ?? "—"}</td>
-                  <td>{v.attendance_record?.batch?.name}</td>
-                  <td>{v.attendance_record?.trainer?.full_name}</td>
+
+          {/* Stacked cards on mobile, a proper table from sm: up. */}
+          <div className="divide-y divide-base-700 sm:hidden">
+            {list.map((v) => (
+              <div key={v.id} className="space-y-1 py-3 first:pt-0 last:pb-0">
+                <div className="font-semibold">{v.name}</div>
+                <div className="text-sm text-white/50">{v.phone}</div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-white/40">
+                  <span>{v.attendance_record?.batch?.branch?.name ?? "—"}</span>
+                  <span>· {v.attendance_record?.batch?.name}</span>
+                  <span>· {v.attendance_record?.trainer?.full_name}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden overflow-x-auto sm:block">
+            <table className="table-shell">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Phone</th>
+                  <th>Branch</th>
+                  <th>Batch</th>
+                  <th>Trainer</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {list.map((v) => (
+                  <tr key={v.id}>
+                    <td className="font-semibold">{v.name}</td>
+                    <td>{v.phone}</td>
+                    <td>{v.attendance_record?.batch?.branch?.name ?? "—"}</td>
+                    <td>{v.attendance_record?.batch?.name}</td>
+                    <td>{v.attendance_record?.trainer?.full_name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ))}
 
