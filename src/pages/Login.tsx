@@ -30,7 +30,7 @@ export function Login() {
           <div className="mt-1 text-sm text-white/50">Attendance & Membership Tracker</div>
         </div>
 
-        <form onSubmit={handleSubmit} className="card space-y-4 p-6">
+        <form onSubmit={handleSubmit} className="card space-y-4 p-6" autoComplete="off">
           <div>
             <label className="label" htmlFor="email">
               Email
@@ -39,7 +39,7 @@ export function Login() {
               id="email"
               type="email"
               required
-              autoComplete="email"
+              autoComplete="off"
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -54,7 +54,7 @@ export function Login() {
               id="password"
               type="password"
               required
-              autoComplete="current-password"
+              autoComplete="off"
               className="input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
