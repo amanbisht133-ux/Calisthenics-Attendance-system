@@ -147,6 +147,7 @@ export interface ExceptionReportRow {
   post_expiry_count: number;
   offense_dates: string[];
   batch_names: string[];
+  branch_id: string;
 }
 
 export interface MonthlyAttendanceRow {

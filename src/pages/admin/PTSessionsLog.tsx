@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { formatDate, todayISO } from "@/lib/utils";
 import { usePagination } from "@/hooks/usePagination";
 import { Pagination } from "@/components/ui/Pagination";
-import type { Profile } from "@/lib/database.types";
+import type { Branch, Profile } from "@/lib/database.types";
 
 const startOfMonth = () => {
   const d = new Date();
@@ -15,18 +15,27 @@ export function PTSessionsLog() {
   const [from, setFrom] = useState(startOfMonth());
   const [to, setTo] = useState(todayISO());
   const [trainerId, setTrainerId] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
 
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
   const { data: trainers } = useQuery({
     queryKey: ["all-trainers"],
     queryFn: async () => (await supabase.from("profiles").select("*").eq("role", "trainer").order("full_name")).data as Profile[],
   });
 
-  const { data: sessions, isLoading } = useQuery({
+  const { data: allSessions, isLoading } = useQuery({
     queryKey: ["pt-sessions-log", from, to, trainerId],
     queryFn: async () => {
       let query = supabase
         .from("pt_sessions")
-        .select("*, trainer:profiles(full_name), pt_client:pt_clients(member:members(name, phone))")
+        .select("*, trainer:profiles(full_name), pt_client:pt_clients(member:members(name, phone, branch_id))")
         .gte("session_date", from)
         .lte("session_date", to)
         .order("session_date", { ascending: false });
@@ -37,13 +46,17 @@ export function PTSessionsLog() {
     },
   });
 
-  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(sessions ?? []);
+  const sessions = (allSessions ?? []).filter(
+    (s: any) => branchFilter === "all" || s.pt_client?.member?.branch_id === branchFilter
+  );
+
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(sessions);
 
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-bold">PT Session Log</h1>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <div>
           <label className="label">From</label>
           <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -51,6 +64,17 @@ export function PTSessionsLog() {
         <div>
           <label className="label">To</label>
           <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Branch</label>
+          <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="label">Trainer</label>
@@ -84,7 +108,7 @@ export function PTSessionsLog() {
                 <td className="text-accent-green">{s.session_done ? "✓ Done" : "—"}</td>
               </tr>
             ))}
-            {!isLoading && (sessions ?? []).length === 0 && (
+            {!isLoading && sessions.length === 0 && (
               <tr>
                 <td colSpan={4} className="py-8 text-center text-white/40">
                   No PT sessions for this filter.

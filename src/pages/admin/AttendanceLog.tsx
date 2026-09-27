@@ -8,7 +8,7 @@ import { exportToExcel } from "@/lib/xlsxExport";
 import { formatDate, todayISO } from "@/lib/utils";
 import { usePagination } from "@/hooks/usePagination";
 import { Pagination } from "@/components/ui/Pagination";
-import type { Batch, MemberStatus, Profile } from "@/lib/database.types";
+import type { Batch, Branch, MemberStatus, Profile } from "@/lib/database.types";
 
 const startOfMonth = () => {
   const d = new Date();
@@ -39,12 +39,21 @@ interface Override {
 export function AttendanceLog() {
   const [from, setFrom] = useState(startOfMonth());
   const [to, setTo] = useState(todayISO());
+  const [branchFilter, setBranchFilter] = useState("all");
   const [batchId, setBatchId] = useState("all");
   const [trainerId, setTrainerId] = useState("all");
   const [overrides, setOverrides] = useState<Map<string, Override>>(new Map());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
   const { data: batches } = useQuery({
     queryKey: ["all-batches"],
     queryFn: async () => (await supabase.from("batches").select("*").order("name")).data as Batch[],
@@ -54,8 +63,13 @@ export function AttendanceLog() {
     queryFn: async () => (await supabase.from("profiles").select("*").eq("role", "trainer").order("full_name")).data as Profile[],
   });
 
+  // Changing branch resets the batch filter, since a batch picked under the
+  // old branch may not belong to (or even exist in) the new one.
+  const branchBatches = (batches ?? []).filter((b) => branchFilter === "all" || b.branch_id === branchFilter);
+  const branchBatchIds = branchBatches.map((b) => b.id);
+
   const { data: rows, isLoading } = useQuery({
-    queryKey: ["attendance-log", from, to, batchId, trainerId],
+    queryKey: ["attendance-log", from, to, batchId, trainerId, branchFilter],
     queryFn: async () => {
       let query = supabase
         .from("attendance_entries")
@@ -67,6 +81,7 @@ export function AttendanceLog() {
         .order("session_date", { foreignTable: "attendance_record", ascending: false });
 
       if (batchId !== "all") query = query.eq("attendance_record.batch_id", batchId);
+      else if (branchFilter !== "all") query = query.in("attendance_record.batch_id", branchBatchIds);
       if (trainerId !== "all") query = query.eq("attendance_record.trainer_id", trainerId);
 
       const { data, error } = await query;
@@ -176,7 +191,7 @@ export function AttendanceLog() {
         <StatCard label="Absent" value={absentCount} accent="red" />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-5">
         <div>
           <label className="label">From</label>
           <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -186,10 +201,28 @@ export function AttendanceLog() {
           <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
         <div>
+          <label className="label">Branch</label>
+          <select
+            className="input"
+            value={branchFilter}
+            onChange={(e) => {
+              setBranchFilter(e.target.value);
+              setBatchId("all");
+            }}
+          >
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className="label">Batch</label>
           <select className="input" value={batchId} onChange={(e) => setBatchId(e.target.value)}>
             <option value="all">All Batches</option>
-            {(batches ?? []).map((b) => (
+            {branchBatches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>

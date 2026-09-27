@@ -46,19 +46,31 @@ export function Reports() {
 function MonthlyAttendanceReport() {
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [branchFilter, setBranchFilter] = useState("all");
   const [batchId, setBatchId] = useState("all");
 
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
   const { data: batches } = useQuery({
     queryKey: ["all-batches"],
     queryFn: async () => (await supabase.from("batches").select("*").order("name")).data as Batch[],
   });
+  const branchBatches = (batches ?? []).filter((b) => branchFilter === "all" || b.branch_id === branchFilter);
+  const branchBatchIds = branchBatches.map((b) => b.id);
 
   const { data: rows, isLoading } = useQuery({
-    queryKey: ["monthly-attendance-report", month, batchId],
+    queryKey: ["monthly-attendance-report", month, batchId, branchFilter],
     queryFn: async () => {
       const monthStart = `${month}-01`;
       let query = supabase.from("v_monthly_attendance").select("*").eq("month", monthStart);
       if (batchId !== "all") query = query.eq("batch_id", batchId);
+      else if (branchFilter !== "all") query = query.in("batch_id", branchBatchIds);
       const { data, error } = await query;
       if (error) throw error;
       return data ?? [];
@@ -87,10 +99,28 @@ function MonthlyAttendanceReport() {
           <input type="month" className="input" value={month} onChange={(e) => setMonth(e.target.value)} />
         </div>
         <div>
+          <label className="label">Branch</label>
+          <select
+            className="input"
+            value={branchFilter}
+            onChange={(e) => {
+              setBranchFilter(e.target.value);
+              setBatchId("all");
+            }}
+          >
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className="label">Batch</label>
           <select className="input" value={batchId} onChange={(e) => setBatchId(e.target.value)}>
             <option value="all">All Batches</option>
-            {(batches ?? []).map((b) => (
+            {branchBatches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}
               </option>
@@ -135,19 +165,28 @@ function ExceptionExportPanel() {
   const [from, setFrom] = useState(`${new Date().getFullYear()}-01-01`);
   const [to, setTo] = useState(todayISO());
   const [trainerId, setTrainerId] = useState("all");
+  const [branchFilter, setBranchFilter] = useState("all");
 
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
   const { data: trainers } = useQuery({
     queryKey: ["all-trainers"],
     queryFn: async () => (await supabase.from("profiles").select("*").eq("role", "trainer").order("full_name")).data as Profile[],
   });
 
-  const { data: rows, isLoading } = useQuery({
+  const { data: allRows, isLoading } = useQuery({
     queryKey: ["exception-export", from, to, trainerId],
     queryFn: async () => {
       let query = supabase
         .from("attendance_entries")
         .select(
-          "*, member:members(name, phone), attendance_record:attendance_records!inner(session_date, trainer_id, batch:batches(name), trainer:profiles(full_name))"
+          "*, member:members(name, phone, branch_id), attendance_record:attendance_records!inner(session_date, trainer_id, batch:batches(name), trainer:profiles(full_name))"
         )
         .eq("is_post_expiry", true)
         .gte("attendance_record.session_date", from)
@@ -158,6 +197,10 @@ function ExceptionExportPanel() {
       return data ?? [];
     },
   });
+
+  const rows = (allRows ?? []).filter(
+    (r: any) => branchFilter === "all" || r.member?.branch_id === branchFilter
+  );
 
   function handleExport() {
     exportToExcel(`exception-report-${from}_to_${to}.xlsx`, [
@@ -186,6 +229,17 @@ function ExceptionExportPanel() {
           <input type="date" className="input" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
         <div>
+          <label className="label">Branch</label>
+          <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
           <label className="label">Trainer</label>
           <select className="input" value={trainerId} onChange={(e) => setTrainerId(e.target.value)}>
             <option value="all">All Trainers</option>
@@ -200,22 +254,35 @@ function ExceptionExportPanel() {
           Export to Excel
         </button>
       </div>
-      <p className="text-sm text-white/50">{isLoading ? "Loading…" : `${rows?.length ?? 0} post-expiry attendance events found.`}</p>
+      <p className="text-sm text-white/50">{isLoading ? "Loading…" : `${rows.length} post-expiry attendance events found.`}</p>
     </div>
   );
 }
 
 function ExpiredExportPanel() {
-  const { data: members, isLoading } = useQuery({
+  const [branchFilter, setBranchFilter] = useState("all");
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
+
+  const { data: allMembers, isLoading } = useQuery({
     queryKey: ["expired-members"],
     queryFn: async () => (await supabase.from("v_expired_members").select("*").order("expiry_date", { ascending: false })).data ?? [],
   });
+
+  const members = (allMembers ?? []).filter((m: any) => branchFilter === "all" || m.branch_id === branchFilter);
 
   function handleExport() {
     exportToExcel(`weekly-expired-list-${todayISO()}.xlsx`, [
       {
         sheetName: "Expired Memberships",
-        rows: (members ?? []).map((m: any) => ({
+        rows: members.map((m: any) => ({
           Name: m.name,
           Phone: m.phone,
           Plan: planLabel(m.plan),
@@ -227,8 +294,19 @@ function ExpiredExportPanel() {
 
   return (
     <div className="space-y-4">
+      <div className="max-w-xs">
+        <label className="label">Branch</label>
+        <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+          <option value="all">All Branches</option>
+          {(branches ?? []).map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <p className="text-sm text-white/50">
-        {isLoading ? "Loading…" : `${members?.length ?? 0} members currently expired as of today.`}
+        {isLoading ? "Loading…" : `${members.length} members currently expired as of today.`}
       </p>
       <button className="btn-secondary" onClick={handleExport}>
         Export to Excel

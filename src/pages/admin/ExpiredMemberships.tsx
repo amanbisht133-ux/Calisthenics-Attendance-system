@@ -7,9 +7,20 @@ import { exportToExcel } from "@/lib/xlsxExport";
 import { formatDate, planLabel } from "@/lib/utils";
 import { usePagination } from "@/hooks/usePagination";
 import { Pagination } from "@/components/ui/Pagination";
+import type { Branch } from "@/lib/database.types";
 
 export function ExpiredMemberships() {
   const [search, setSearch] = useState("");
+  const [branchFilter, setBranchFilter] = useState("all");
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
 
   const { data: members, isLoading } = useQuery({
     queryKey: ["expired-members"],
@@ -21,7 +32,10 @@ export function ExpiredMemberships() {
     },
   });
 
-  const filtered = (members ?? []).filter((m: any) => m.name.toLowerCase().includes(search.toLowerCase()));
+  const filtered = (members ?? []).filter(
+    (m: any) =>
+      m.name.toLowerCase().includes(search.toLowerCase()) && (branchFilter === "all" || m.branch_id === branchFilter)
+  );
   const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(filtered);
 
   function handleExport() {
@@ -44,14 +58,30 @@ export function ExpiredMemberships() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">🔴 Expired Memberships</h1>
-          <p className="text-sm text-white/50">{members?.length ?? 0} members currently expired — live view</p>
+          <p className="text-sm text-white/50">{filtered.length} members currently expired — live view</p>
         </div>
         <button className="btn-secondary" onClick={handleExport}>
           Export to Excel
         </button>
       </div>
 
-      <SearchBar value={search} onChange={setSearch} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <label className="label">Search</label>
+          <SearchBar value={search} onChange={setSearch} />
+        </div>
+        <div>
+          <label className="label">Branch</label>
+          <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <div className="card overflow-x-auto">
         <table className="table-shell">

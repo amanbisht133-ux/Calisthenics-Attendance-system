@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -5,10 +6,21 @@ import { exportToExcel } from "@/lib/xlsxExport";
 import { formatDate } from "@/lib/utils";
 import { usePagination } from "@/hooks/usePagination";
 import { Pagination } from "@/components/ui/Pagination";
-import type { ExceptionReportRow } from "@/lib/database.types";
+import type { Branch, ExceptionReportRow } from "@/lib/database.types";
 
 export function ExceptionReport() {
-  const { data: rows, isLoading } = useQuery({
+  const [branchFilter, setBranchFilter] = useState("all");
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
+
+  const { data: allRows, isLoading } = useQuery({
     queryKey: ["exception-report"],
     refetchInterval: 60_000,
     queryFn: async () => {
@@ -17,6 +29,8 @@ export function ExceptionReport() {
       return (data ?? []) as ExceptionReportRow[];
     },
   });
+
+  const rows = (allRows ?? []).filter((r) => branchFilter === "all" || r.branch_id === branchFilter);
 
   function handleExport() {
     const exportRows: Record<string, unknown>[] = [];
@@ -37,7 +51,7 @@ export function ExceptionReport() {
     ]);
   }
 
-  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(rows ?? []);
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(rows);
 
   return (
     <div className="space-y-5">
@@ -49,6 +63,18 @@ export function ExceptionReport() {
         <button className="btn-secondary" onClick={handleExport}>
           Export to Excel
         </button>
+      </div>
+
+      <div className="max-w-xs">
+        <label className="label">Branch</label>
+        <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+          <option value="all">All Branches</option>
+          {(branches ?? []).map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="space-y-3">

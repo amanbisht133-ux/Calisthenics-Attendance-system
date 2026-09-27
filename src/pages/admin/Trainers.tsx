@@ -2,10 +2,21 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { Modal } from "@/components/ui/Modal";
+import type { Branch } from "@/lib/database.types";
 
 export function Trainers() {
   const queryClient = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [branchFilter, setBranchFilter] = useState("all");
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
 
   const { data: trainers, isLoading } = useQuery({
     queryKey: ["admin-trainers"],
@@ -20,19 +31,35 @@ export function Trainers() {
     },
   });
 
+  const filteredTrainers = (trainers ?? []).filter(
+    (t) => branchFilter === "all" || t.trainer_branches.some((tb: any) => tb.branch?.id === branchFilter)
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Trainers</h1>
         <button className="btn-primary" onClick={() => setShowAdd(true)}>
           + Add Trainer
         </button>
       </div>
 
+      <div className="max-w-xs">
+        <label className="label">Branch</label>
+        <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+          <option value="all">All Branches</option>
+          {(branches ?? []).map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {isLoading && <p className="text-white/50">Loading trainers…</p>}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {(trainers ?? []).map((t) => (
+        {filteredTrainers.map((t) => (
           <div key={t.id} className="card p-4">
             <h3 className="font-bold">{t.full_name}</h3>
             <p className="text-sm text-white/50">{t.email}</p>
@@ -49,8 +76,10 @@ export function Trainers() {
             </p>
           </div>
         ))}
-        {!isLoading && (trainers ?? []).length === 0 && (
-          <p className="text-white/40 sm:col-span-3">No trainers yet. Add one to get started.</p>
+        {!isLoading && filteredTrainers.length === 0 && (
+          <p className="text-white/40 sm:col-span-3">
+            {branchFilter === "all" ? "No trainers yet. Add one to get started." : "No trainers assigned to this branch."}
+          </p>
         )}
       </div>
 
