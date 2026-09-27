@@ -5,10 +5,12 @@ import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Modal } from "@/components/ui/Modal";
+import { SearchBar } from "@/components/ui/SearchBar";
 import { extractFunctionErrorMessage } from "@/lib/edgeFunctions";
 import { formatDate } from "@/lib/utils";
 import { usePagination } from "@/hooks/usePagination";
 import { Pagination } from "@/components/ui/Pagination";
+import type { Branch } from "@/lib/database.types";
 
 interface ReminderMember {
   id: string;
@@ -17,6 +19,7 @@ interface ReminderMember {
   email: string | null;
   expiry_date: string;
   status: "expired" | "expiring_soon";
+  branch_id: string | null;
 }
 
 interface SendResult {
@@ -31,13 +34,26 @@ export function Reminders() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("v_member_status")
-        .select("id, name, phone, email, expiry_date, status")
+        .select("id, name, phone, email, expiry_date, status, branch_id")
         .in("status", ["expired", "expiring_soon"])
         .order("expiry_date");
       if (error) throw error;
       return (data ?? []) as ReminderMember[];
     },
   });
+
+  const { data: branches } = useQuery({
+    queryKey: ["all-branches"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("branches").select("*").order("name");
+      if (error) throw error;
+      return (data ?? []) as Branch[];
+    },
+  });
+
+  const [branchFilter, setBranchFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   // Nobody is pre-selected — sending to this many people is consequential
   // enough that it should always be a deliberate choice, not a default an
@@ -57,7 +73,15 @@ export function Reminders() {
     });
   }
 
-  const selectedMembers = (members ?? []).filter((m) => selected.has(m.id) && m.email);
+  const q = search.toLowerCase().trim();
+  const filteredMembers = (members ?? []).filter((m) => {
+    if (branchFilter !== "all" && m.branch_id !== branchFilter) return false;
+    if (statusFilter !== "all" && m.status !== statusFilter) return false;
+    if (q && !m.name.toLowerCase().includes(q) && !m.phone.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const selectedMembers = filteredMembers.filter((m) => selected.has(m.id) && m.email);
 
   async function handleSend() {
     setSending(true);
@@ -86,17 +110,17 @@ export function Reminders() {
     }
   }
 
-  const withEmail = (members ?? []).filter((m) => m.email).length;
-  const withoutEmail = (members ?? []).length - withEmail;
+  const withEmail = filteredMembers.filter((m) => m.email).length;
+  const withoutEmail = filteredMembers.length - withEmail;
 
-  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(members ?? []);
+  const { page, pageSize, pageCount, total, pageItems, setPage, changePageSize } = usePagination(filteredMembers);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold">Reminders</h1>
         <p className="text-sm text-white/50">
-          {members?.length ?? 0} members expired or expiring soon — {withEmail} have an email on file, {withoutEmail}{" "}
+          {filteredMembers.length} members expired or expiring soon — {withEmail} have an email on file, {withoutEmail}{" "}
           don't and will be skipped.
         </p>
       </div>
@@ -125,9 +149,38 @@ export function Reminders() {
         </div>
       )}
 
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div>
+          <label className="label">Branch</label>
+          <select className="input" value={branchFilter} onChange={(e) => setBranchFilter(e.target.value)}>
+            <option value="all">All Branches</option>
+            {(branches ?? []).map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">Status</label>
+          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">All (Expired + Expiring Soon)</option>
+            <option value="expired">Expired</option>
+            <option value="expiring_soon">Expiring Soon</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Search</label>
+          <SearchBar value={search} onChange={setSearch} placeholder="Name or phone…" />
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="flex gap-2 text-xs">
-          <button className="btn-ghost !py-1.5" onClick={() => setSelected(new Set((members ?? []).filter((m) => m.email).map((m) => m.id)))}>
+          <button
+            className="btn-ghost !py-1.5"
+            onClick={() => setSelected(new Set(filteredMembers.filter((m) => m.email).map((m) => m.id)))}
+          >
             Select all with email
           </button>
           <button className="btn-ghost !py-1.5" onClick={() => setSelected(new Set())}>
@@ -178,10 +231,10 @@ export function Reminders() {
                 <td>{formatDate(m.expiry_date)}</td>
               </tr>
             ))}
-            {!isLoading && (members ?? []).length === 0 && (
+            {!isLoading && filteredMembers.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-8 text-center text-white/40">
-                  No expired or expiring-soon members right now. 🎉
+                  No expired or expiring-soon members match this filter. 🎉
                 </td>
               </tr>
             )}
