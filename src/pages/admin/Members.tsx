@@ -309,8 +309,9 @@ function AddMemberModal({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("trainer_branches")
-        .select("trainer:profiles(id, full_name)")
-        .eq("branch_id", branchId);
+        .select("trainer:profiles!inner(id, full_name, is_active)")
+        .eq("branch_id", branchId)
+        .eq("trainer.is_active", true);
       if (error) throw error;
       return (data ?? []).map((r: any) => r.trainer).filter(Boolean) as { id: string; full_name: string }[];
     },

@@ -703,8 +703,9 @@ function RenewModal({ member, onClose, onRenewed }: { member: any; onClose: () =
 
     supabase
       .from("trainer_branches")
-      .select("trainer:profiles(id, full_name)")
+      .select("trainer:profiles!inner(id, full_name, is_active)")
       .eq("branch_id", member.branch?.id)
+      .eq("trainer.is_active", true)
       .then(({ data }) => setTrainers((data ?? []).map((r: any) => r.trainer).filter(Boolean)));
   });
 

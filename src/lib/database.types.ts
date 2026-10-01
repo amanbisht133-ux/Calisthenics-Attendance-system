@@ -20,6 +20,7 @@ export interface Profile {
   role: UserRole;
   phone: string | null;
   created_at: string;
+  is_active: boolean;
 }
 
 export interface Branch {

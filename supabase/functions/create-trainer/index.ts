@@ -2,6 +2,8 @@
 // then uses the service-role key to create a new auth user + trainer profile.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
+import { sendEmail } from "../_shared/resend.ts";
+import { trainerWelcomeEmail } from "../_shared/trainerEmail.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -49,7 +51,17 @@ Deno.serve(async (req) => {
       await adminClient.from("profiles").update({ phone }).eq("id", created.user!.id);
     }
 
-    return new Response(JSON.stringify({ id: created.user!.id }), {
+    // Best-effort: the trainer account is already created either way, so a
+    // failed welcome email shouldn't fail the whole request — just surface it.
+    let emailError: string | null = null;
+    try {
+      const { subject, html } = trainerWelcomeEmail(full_name, email, password);
+      await sendEmail({ to: [email], subject, html });
+    } catch (e) {
+      emailError = (e as Error).message;
+    }
+
+    return new Response(JSON.stringify({ id: created.user!.id, emailError }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
