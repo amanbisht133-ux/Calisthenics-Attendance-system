@@ -1,16 +1,33 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 import { StatCard } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useAttendanceRanking } from "@/hooks/useLeaderboard";
 import { Leaderboard } from "@/components/Leaderboard";
-import { formatDate, todayISO } from "@/lib/utils";
+import { formatBytes, formatDate, todayISO } from "@/lib/utils";
 import type { Branch } from "@/lib/database.types";
+
+const FREE_TIER_DB_LIMIT_BYTES = 500 * 1024 * 1024; // Supabase free-tier database storage limit
+
+interface TableUsage {
+  name: string;
+  bytes: number;
+}
 
 export function AdminOverview() {
   const [branchFilter, setBranchFilter] = useState<string>("all");
+
+  const { data: dbUsage, isLoading: dbUsageLoading } = useQuery({
+    queryKey: ["admin-database-size"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_database_size");
+      if (error) throw error;
+      return data as { total_bytes: number; tables: TableUsage[] };
+    },
+  });
 
   const { data: branches } = useQuery({
     queryKey: ["all-branches"],
@@ -118,6 +135,54 @@ export function AdminOverview() {
         <StatCard label="Expired" value={isLoading ? "…" : data!.expiredCount} accent="red" />
         <StatCard label="Today's Attendance" value={isLoading ? "…" : data!.attendanceTodayCount} accent="green" />
         <StatCard label="Today's Demo Visitors" value={isLoading ? "…" : data!.demoTodayCount} accent="orange" />
+      </div>
+
+      <div className="card p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">Database Usage</h2>
+          <span className="text-xs text-white/30">Supabase free-tier limit: 500 MB</span>
+        </div>
+        {dbUsageLoading ? (
+          <p className="text-white/50">Loading…</p>
+        ) : dbUsage ? (
+          (() => {
+            const pct = Math.min(100, (dbUsage.total_bytes / FREE_TIER_DB_LIMIT_BYTES) * 100);
+            return (
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-1.5 flex items-baseline justify-between">
+                    <span className="font-display text-2xl font-bold text-accent-green">
+                      {formatBytes(dbUsage.total_bytes)}
+                    </span>
+                    <span className="text-xs text-white/40">{pct.toFixed(1)}% of 500 MB used</span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-base-700">
+                    <div
+                      className={clsx(
+                        "h-full rounded-full transition-all",
+                        pct >= 90 ? "bg-status-expired" : pct >= 70 ? "bg-accent-orange" : "bg-accent-green"
+                      )}
+                      style={{ width: `${Math.max(pct, 2)}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/40">Largest Tables</p>
+                  <div className="space-y-1.5">
+                    {(dbUsage.tables ?? []).slice(0, 5).map((t) => (
+                      <div key={t.name} className="flex items-center justify-between text-sm">
+                        <span className="text-white/60">{t.name}</span>
+                        <span className="font-mono text-xs text-white/40">{formatBytes(t.bytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()
+        ) : (
+          <p className="text-white/40">Couldn't load database usage.</p>
+        )}
       </div>
 
       <div className="card p-5">
