@@ -56,6 +56,7 @@ export function useAllMembers(branchId: string | undefined) {
         status: memberStatus(m.expiry_date),
         // first assigned batch id, or null if unassigned
         batchId: m.member_batches?.[0]?.batch_id ?? null,
+        batchIds: (m.member_batches ?? []).map((mb) => mb.batch_id),
       }));
     },
   });
@@ -141,4 +142,23 @@ export function useAttendanceRecordForDate(
 
 export function useTodaysAttendanceRecord(batchId: string | undefined, trainerId: string | undefined) {
   return useAttendanceRecordForDate(batchId, trainerId, todayISO());
+}
+
+// Balance still owed on each member's current package (trainers can't read
+// payments directly; this database function returns only the number).
+export function useMemberDues(branchId: string | undefined) {
+  return useQuery({
+    queryKey: ["member-dues", branchId],
+    enabled: !!branchId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("member_dues", { p_branch_id: branchId });
+      if (error) throw error;
+      const map = new Map<string, number>();
+      for (const row of (data ?? []) as { member_id: string; balance_due: number | string }[]) {
+        const due = Number(row.balance_due);
+        if (due > 0) map.set(row.member_id, due);
+      }
+      return map;
+    },
+  });
 }

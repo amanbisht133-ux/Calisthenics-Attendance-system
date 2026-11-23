@@ -72,7 +72,7 @@ export function DemoVisitors() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Demo Visitors</h1>
+        <h1 className="text-3xl leading-none">Demo Visitors</h1>
         <button className="btn-secondary" onClick={handleExport}>
           Export to Excel
         </button>

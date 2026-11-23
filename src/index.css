@@ -9,14 +9,17 @@
 
   body {
     @apply bg-base-900 text-white font-sans antialiased;
-    background-image: radial-gradient(circle at 20% -10%, rgba(140, 255, 60, 0.06), transparent 40%);
+    background-image: radial-gradient(circle at 15% -10%, rgba(243, 131, 32, 0.09), transparent 45%);
   }
 
   h1,
-  h2,
+  h2 {
+    @apply font-display font-normal uppercase tracking-wide;
+  }
+
   h3,
   h4 {
-    @apply font-display tracking-tight;
+    @apply font-semibold;
   }
 
   ::selection {
@@ -26,7 +29,7 @@
 
 @layer components {
   .card {
-    @apply bg-base-800 border border-base-600 rounded-xl;
+    @apply bg-base-800 border border-white/[0.07] rounded-2xl;
   }
 
   .btn {
@@ -35,7 +38,15 @@
   }
 
   .btn-primary {
-    @apply btn bg-accent-green text-base-900 hover:bg-accent-green-dim shadow-glow;
+    @apply btn text-base-900 shadow-glow hover:brightness-110;
+    background-image: linear-gradient(110deg, #ffb15c, #f38320 45%, #e2531a);
+  }
+
+  .ember-text {
+    background-image: linear-gradient(100deg, #ffb15c, #f38320 45%, #e2531a);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   .btn-secondary {

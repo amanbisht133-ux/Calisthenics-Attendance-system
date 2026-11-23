@@ -35,7 +35,7 @@ export function AdminLayout() {
       >
         <div className="flex shrink-0 items-center justify-between px-5 py-5">
           <div>
-            <div className="font-display text-xl font-bold text-accent-green">CalisthenicsHQ</div>
+            <div className="font-display text-xl tracking-wider text-white">Calisthenics<span className="ember-text">HQ</span></div>
             <div className="text-xs text-white/50">Admin Console</div>
           </div>
           <button className="text-white/50 lg:hidden" onClick={() => setNavOpen(false)}>
@@ -83,7 +83,7 @@ export function AdminLayout() {
           <button className="btn-ghost !px-2.5 !py-2" onClick={() => setNavOpen(true)}>
             ☰
           </button>
-          <div className="font-display font-bold text-accent-green">CalisthenicsHQ</div>
+          <div className="font-display tracking-wider text-white">Calisthenics<span className="ember-text">HQ</span></div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8 lg:py-8">
           <Outlet />

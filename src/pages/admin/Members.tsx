@@ -68,7 +68,7 @@ export function Members() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Members</h1>
+          <h1 className="text-3xl leading-none">Members</h1>
           <p className="text-sm text-white/50">{members?.length ?? 0} total</p>
         </div>
         <div className="flex gap-2">

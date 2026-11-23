@@ -113,7 +113,7 @@ export function AdminOverview() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Overview</h1>
+          <h1 className="text-3xl leading-none">Overview</h1>
           <p className="text-sm text-white/50">{formatDate(todayISO(), "EEEE, dd MMM yyyy")}</p>
         </div>
         <div className="w-full sm:w-auto">
@@ -151,7 +151,7 @@ export function AdminOverview() {
               <div className="space-y-4">
                 <div>
                   <div className="mb-1.5 flex items-baseline justify-between">
-                    <span className="font-display text-2xl font-bold text-accent-green">
+                    <span className="font-display text-3xl text-accent-green">
                       {formatBytes(dbUsage.total_bytes)}
                     </span>
                     <span className="text-xs text-white/40">{pct.toFixed(1)}% of 500 MB used</span>

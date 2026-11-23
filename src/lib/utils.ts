@@ -163,3 +163,39 @@ export function planLabel(plan: MembershipPlan): string {
       return "Half-Yearly";
   }
 }
+
+/** Minutes after midnight when a batch starts, parsed from its time_slot (e.g. "6:30 - 7:30 AM" -> 390). */
+export function slotStartMinutes(timeSlot: string): number {
+  const match = timeSlot.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (!match) return 24 * 60;
+  let hour = parseInt(match[1], 10);
+  const minutes = match[2] ? parseInt(match[2], 10) : 0;
+  let meridiem = match[3]?.toLowerCase();
+  if (!meridiem) meridiem = timeSlot.match(/\b(am|pm)\b/i)?.[1]?.toLowerCase();
+  if (meridiem === "pm" && hour !== 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (!meridiem && hour >= 1 && hour <= 6) hour += 12;
+  return hour * 60 + minutes;
+}
+
+/** "6:30 - 7:30 AM" -> "6:30 AM" */
+export function slotStartLabel(timeSlot: string): string {
+  const mins = slotStartMinutes(timeSlot);
+  if (mins >= 24 * 60) return timeSlot;
+  const h24 = Math.floor(mins / 60);
+  const m = mins % 60;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h24 < 12 ? "AM" : "PM"}`;
+}
+
+/** Whole days from today until the given ISO date (negative = in the past). */
+export function daysUntil(iso: string, asOf: Date = new Date()): number {
+  const d = parseISO(iso);
+  const today = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((day.getTime() - today.getTime()) / 86_400_000);
+}
+
+export function formatRupees(amount: number): string {
+  return `₹${Math.round(amount).toLocaleString("en-IN")}`;
+}

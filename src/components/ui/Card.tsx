@@ -20,7 +20,7 @@ export function StatCard({
   return (
     <Card>
       <div className="text-xs font-semibold uppercase tracking-wide text-white/50">{label}</div>
-      <div className={clsx("mt-2 font-display text-3xl font-bold", accentColor)}>{value}</div>
+      <div className={clsx("mt-2 font-display text-4xl leading-none", accentColor)}>{value}</div>
     </Card>
   );
 }

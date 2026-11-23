@@ -118,7 +118,7 @@ export function Reminders() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold">Reminders</h1>
+        <h1 className="text-3xl leading-none">Reminders</h1>
         <p className="text-sm text-white/50">
           {filteredMembers.length} members expired or expiring soon — {withEmail} have an email on file, {withoutEmail}{" "}
           don't and will be skipped.

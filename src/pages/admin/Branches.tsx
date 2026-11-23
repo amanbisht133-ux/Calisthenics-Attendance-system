@@ -29,7 +29,7 @@ export function Branches() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Branches</h1>
+        <h1 className="text-3xl leading-none">Branches</h1>
         <button className="btn-primary" onClick={() => setShowAdd(true)}>
           + Add Branch
         </button>
