@@ -337,6 +337,7 @@ function EditMemberModal({
   const isTrainer = person.role === "trainer";
   const initialBranchIds: string[] = (person.trainer_branches ?? []).map((tb: any) => tb.branch?.id).filter(Boolean);
   const [fullName, setFullName] = useState(person.full_name ?? "");
+  const [login, setLogin] = useState(loginOf(person.email));
   const [phone, setPhone] = useState(person.phone ?? "");
   const [branchIds, setBranchIds] = useState<string[]>(initialBranchIds);
   const [resetPassword, setResetPassword] = useState(false);
@@ -347,6 +348,10 @@ function EditMemberModal({
   async function handleSubmit() {
     if (!fullName.trim()) {
       setError("Name is required.");
+      return;
+    }
+    if (!login.trim()) {
+      setError("Username can't be empty.");
       return;
     }
     if (resetPassword && newPassword.length < 6) {
@@ -361,6 +366,7 @@ function EditMemberModal({
           trainer_id: person.id,
           full_name: fullName,
           phone,
+          new_login: login.trim().toLowerCase() !== loginOf(person.email) ? login : undefined,
           new_password: resetPassword ? newPassword : undefined,
         },
       });
@@ -400,8 +406,8 @@ function EditMemberModal({
           <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </div>
         <div>
-          <label className="label">Username</label>
-          <input className="input opacity-60" value={loginOf(person.email)} readOnly />
+          <label className="label">Username (what they type to log in)</label>
+          <input className="input" autoCapitalize="none" value={login} onChange={(e) => setLogin(e.target.value)} />
         </div>
         <div>
           <label className="label">Phone</label>

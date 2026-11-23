@@ -31,11 +31,28 @@ Deno.serve(async (req) => {
     if (profileError) throw profileError;
     if (callerProfile.role !== "admin") throw new Error("Only admins can edit team members.");
 
-    const { trainer_id, full_name, phone, new_password } = await req.json();
+    const { trainer_id, full_name, phone, new_password, new_login } = await req.json();
     if (!trainer_id) throw new Error("trainer_id is required.");
     if (new_password && new_password.length < 6) throw new Error("New password must be at least 6 characters.");
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    let newEmail: string | undefined;
+    if (typeof new_login === "string" && new_login.trim()) {
+      const l = new_login.trim().toLowerCase();
+      if (!l.includes("@") && !/^[a-z0-9._-]+$/.test(l)) {
+        throw new Error("Username can only use letters, numbers, dots, dashes and underscores.");
+      }
+      newEmail = l.includes("@") ? l : `${l}@staff.calisthenicshq.app`;
+      const { error: emailErr } = await adminClient.auth.admin.updateUserById(trainer_id, {
+        email: newEmail,
+        email_confirm: true,
+      });
+      if (emailErr) {
+        if (/already|exists|registered/i.test(emailErr.message)) throw new Error("That username is already taken. Pick another.");
+        throw emailErr;
+      }
+    }
 
     if (new_password) {
       const { error: authError } = await adminClient.auth.admin.updateUserById(trainer_id, { password: new_password });
@@ -43,6 +60,7 @@ Deno.serve(async (req) => {
     }
 
     const profileUpdate: Record<string, unknown> = {};
+    if (newEmail) profileUpdate.email = newEmail;
     if (full_name !== undefined) profileUpdate.full_name = full_name;
     if (phone !== undefined) profileUpdate.phone = phone;
     if (Object.keys(profileUpdate).length > 0) {
