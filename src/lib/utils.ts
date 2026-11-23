@@ -170,7 +170,7 @@ export function slotStartMinutes(timeSlot: string): number {
   if (!match) return 24 * 60;
   let hour = parseInt(match[1], 10);
   const minutes = match[2] ? parseInt(match[2], 10) : 0;
-  let meridiem = match[3]?.toLowerCase();
+  let meridiem: string | undefined = match[3]?.toLowerCase();
   if (!meridiem) meridiem = timeSlot.match(/\b(am|pm)\b/i)?.[1]?.toLowerCase();
   if (meridiem === "pm" && hour !== 12) hour += 12;
   if (meridiem === "am" && hour === 12) hour = 0;
