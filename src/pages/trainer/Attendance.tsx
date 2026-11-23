@@ -129,6 +129,7 @@ export function Attendance() {
   const [confirmAll, setConfirmAll] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [demoOpen, setDemoOpen] = useState(false);
+  const [showUnassigned, setShowUnassigned] = useState(false);
   const recordIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -160,6 +161,11 @@ export function Attendance() {
     })
     .sort((a, b) => a.name.localeCompare(b.name));
   const rosterIds = new Set(roster.map((m) => m.id));
+
+  // Paying members who were never given a class time: show them so they never go unseen.
+  const unassigned = allMembers
+    .filter((m) => m.batchIds.length === 0 && daysUntil(m.expiry_date) >= 0 && !rosterIds.has(m.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const presentCount = roster.filter((m) => presentIds.has(m.id)).length;
   const nudgeCount = roster.filter((m) => needsNudge(m.expiry_date, dues.get(m.id))).length;
@@ -386,6 +392,33 @@ export function Attendance() {
               ))
             )}
           </div>
+
+          {unassigned.length > 0 && (
+            <div className="space-y-2">
+              <button
+                className="flex w-full items-center justify-between px-1 text-left text-sm font-semibold text-white/60"
+                onClick={() => setShowUnassigned((v) => !v)}
+              >
+                <span>No class time set yet ({unassigned.length})</span>
+                <span>{showUnassigned ? "Hide" : "Show"}</span>
+              </button>
+              {showUnassigned && (
+                <div className="card divide-y divide-white/5 overflow-hidden">
+                  {unassigned.map((m) => (
+                    <MemberRow
+                      key={m.id}
+                      member={m}
+                      due={dues.get(m.id)}
+                      present={presentIds.has(m.id)}
+                      saving={savingIds.has(m.id)}
+                      elsewhere={presentElsewhere(m.id) ? presenceMap.get(m.id)?.batchName : undefined}
+                      onToggle={() => toggle(m.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Someone else came */}
           <div className="space-y-2">

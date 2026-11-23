@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
     });
     const {
       data: { user },
-    } = await callerClient.auth.getUser();
+    } = await callerClient.auth.getUser(authHeader.replace(/^Bearer\s+/i, ""));
     if (!user) throw new Error("Not authenticated.");
 
     const { data: callerProfile, error: profileError } = await callerClient

@@ -103,11 +103,16 @@ function monthlyBreakdown(startDateISO: string, planMonths: number, totalFee: nu
 // suffix. Best-effort: failures are returned as a message, not thrown, so
 // callers can add/renew the member successfully even if the sheet is
 // unreachable or not yet configured.
+const LEGACY_SHEET_SYNC_ENABLED: boolean = false;
+
 export async function syncMemberToSheet(
   member: SyncableMember,
   isRenewal: boolean,
   extras: SheetSyncExtras
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  // The accounts trackers are updated directly (renewals, joins, payments) by the assistant, and the
+  // old sheet must never be written to, so the legacy Apps Script copy is switched off.
+  if (LEGACY_SHEET_SYNC_ENABLED === false) return { ok: true };
   try {
     let personNo = member.sheet_person_no;
     let renewalNo = member.sheet_renewal_no ?? 1;
