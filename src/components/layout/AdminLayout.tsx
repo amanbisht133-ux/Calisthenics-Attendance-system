@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
+import { useLiveAttendance } from "@/hooks/useLiveAttendance";
 import clsx from "clsx";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
@@ -21,6 +22,7 @@ const links = [
 ];
 
 export function AdminLayout() {
+  useLiveAttendance();
   const { profile, signOut } = useAuth();
   const [navOpen, setNavOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);

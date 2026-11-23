@@ -26,8 +26,8 @@ async function ensureRecordId(batchId: string, trainerId: string, date: string):
     .from("attendance_records")
     .select("id")
     .eq("batch_id", batchId)
-    .eq("trainer_id", trainerId)
     .eq("session_date", date)
+    .order("submitted_at", { ascending: true })
     .limit(1);
   if (existing && existing.length > 0) return existing[0].id;
 
@@ -221,8 +221,8 @@ export function Attendance() {
           .insert({ attendance_record_id: recordIdRef.current, member_id: memberId, present: true })
           .select("id")
           .single();
-        if (insError) throw insError;
-        setEntryIdByMember((m) => new Map(m).set(memberId, data.id));
+        if (insError && insError.code !== "23505") throw insError; // already ticked by someone else just now
+        if (data) setEntryIdByMember((m) => new Map(m).set(memberId, data.id));
       }
       await refresh();
     } catch (e: any) {
@@ -250,7 +250,10 @@ export function Attendance() {
       if (!recordIdRef.current) recordIdRef.current = await ensureRecordId(batch.id, profile.id, date);
       const { data, error: insError } = await supabase
         .from("attendance_entries")
-        .insert(unmarked.map((m) => ({ attendance_record_id: recordIdRef.current, member_id: m.id, present: true })))
+        .upsert(
+          unmarked.map((m) => ({ attendance_record_id: recordIdRef.current, member_id: m.id, present: true })),
+          { onConflict: "attendance_record_id,member_id", ignoreDuplicates: true }
+        )
         .select("id, member_id");
       if (insError) throw insError;
       setPresentIds((s) => new Set([...s, ...unmarked.map((m) => m.id)]));

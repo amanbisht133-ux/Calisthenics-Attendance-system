@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { BranchProvider, useBranch } from "@/context/BranchContext";
 import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 import { usePTClients } from "@/hooks/useTrainerData";
+import { useLiveAttendance } from "@/hooks/useLiveAttendance";
 
 export function TrainerLayout() {
   return (
@@ -22,6 +23,7 @@ function branchLabel(name: string | undefined): string {
 }
 
 function TrainerLayoutInner() {
+  useLiveAttendance();
   const { profile, signOut } = useAuth();
   const { branches, loading, selectedBranch, selectedBranchId } = useBranch();
   const { data: ptClients } = usePTClients(profile?.id, selectedBranchId ?? undefined);

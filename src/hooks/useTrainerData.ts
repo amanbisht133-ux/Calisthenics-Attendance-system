@@ -92,7 +92,7 @@ export interface TodaysPresence {
 }
 
 // Map of memberId -> the one batch they were marked present in on the given
-// date (by this trainer). A member can only be present in one session per
+// date (by any trainer of the academy: the sheet is shared). A member can only be present in one session per
 // day, so this is also used to hide them from every other batch's roster.
 export function useAttendanceMapForDate(trainerId: string | undefined, date: string) {
   return useQuery({
@@ -102,7 +102,6 @@ export function useAttendanceMapForDate(trainerId: string | undefined, date: str
       const { data: records, error } = await supabase
         .from("attendance_records")
         .select("batch_id, batch:batches(name), entries:attendance_entries(id, member_id)")
-        .eq("trainer_id", trainerId)
         .eq("session_date", date);
       if (error) throw error;
 
@@ -131,15 +130,20 @@ export function useAttendanceRecordForDate(
     queryKey: ["attendance-record", batchId, trainerId, date],
     enabled: !!batchId && !!trainerId,
     queryFn: async () => {
+      // One shared sheet per class per day: merge whatever any trainer has marked.
       const { data, error } = await supabase
         .from("attendance_records")
         .select("*, entries:attendance_entries(*), demo_visitors(*)")
         .eq("batch_id", batchId)
-        .eq("trainer_id", trainerId)
         .eq("session_date", date)
-        .maybeSingle();
+        .order("submitted_at", { ascending: true });
       if (error) throw error;
-      return data;
+      if (!data || data.length === 0) return null;
+      const seen = new Set<string>();
+      const entries = data
+        .flatMap((r: any) => r.entries ?? [])
+        .filter((e: any) => (seen.has(e.member_id) ? false : (seen.add(e.member_id), true)));
+      return { ...data[0], entries, demo_visitors: data.flatMap((r: any) => r.demo_visitors ?? []) } as any;
     },
   });
 }
