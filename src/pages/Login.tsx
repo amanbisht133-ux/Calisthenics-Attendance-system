@@ -26,8 +26,9 @@ export function Login() {
     <div className="flex min-h-screen items-center justify-center bg-base-900 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="font-display text-3xl font-bold text-accent-green">CalisthenicsHQ</div>
-          <div className="mt-1 text-sm text-white/50">Attendance & Membership Tracker</div>
+          <div className="font-display text-5xl tracking-wider text-white">Calisthenics<span className="ember-text">HQ</span></div>
+          <div className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/50">Staff login</div>
+          <div className="mt-1 text-sm text-white/40">Calisthenics Lab India · Indian Calisthenics School</div>
         </div>
 
         <form onSubmit={handleSubmit} className="card space-y-4 p-6" autoComplete="off">

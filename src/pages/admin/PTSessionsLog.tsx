@@ -54,7 +54,7 @@ export function PTSessionsLog() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold">PT Session Log</h1>
+      <h1 className="text-3xl leading-none">PT Session Log</h1>
 
       <div className="grid gap-3 sm:grid-cols-4">
         <div>

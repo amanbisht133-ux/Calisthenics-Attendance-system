@@ -23,7 +23,7 @@ export function AdminLeaderboard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">🏆 Leaderboard</h1>
+          <h1 className="text-3xl leading-none">🏆 Leaderboard</h1>
           <p className="text-sm text-white/50">Most sessions attended this month</p>
         </div>
         <select className="input sm:max-w-xs" value={branchId} onChange={(e) => setBranchId(e.target.value)}>

@@ -12,7 +12,7 @@ export function Reports() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold">Reports</h1>
+      <h1 className="text-3xl leading-none">Reports</h1>
 
       <div className="flex gap-2 border-b border-base-600">
         {(

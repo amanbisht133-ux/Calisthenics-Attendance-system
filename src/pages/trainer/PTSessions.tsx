@@ -1,21 +1,21 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import clsx from "clsx";
 import { useAuth } from "@/context/AuthContext";
 import { useBranch } from "@/context/BranchContext";
-import { usePTClients } from "@/hooks/useTrainerData";
+import { useMemberDues, usePTClients } from "@/hooks/useTrainerData";
 import { supabase } from "@/lib/supabaseClient";
-import { SearchBar } from "@/components/ui/SearchBar";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { todayISO, formatDate } from "@/lib/utils";
-import { memberStatus } from "@/lib/utils";
+import { MemberFlags } from "@/components/MemberFlags";
+import { formatDate, todayISO } from "@/lib/utils";
 
 export function PTSessions() {
   const { profile } = useAuth();
   const { selectedBranchId } = useBranch();
   const queryClient = useQueryClient();
   const { data: clients, isLoading } = usePTClients(profile?.id, selectedBranchId ?? undefined);
-  const [search, setSearch] = useState("");
+  const { data: dues = new Map<string, number>() } = useMemberDues(selectedBranchId ?? undefined);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const { data: todaysSessions } = useQuery({
     queryKey: ["pt-sessions-today", profile?.id, todayISO()],
@@ -34,8 +34,9 @@ export function PTSessions() {
   const doneClientIds = new Set((todaysSessions ?? []).map((s: any) => s.pt_client_id));
 
   async function markDone(ptClientId: string) {
-    if (!profile) return;
+    if (!profile || doneClientIds.has(ptClientId)) return;
     setMarkingId(ptClientId);
+    setError(null);
     try {
       const { error } = await supabase.from("pt_sessions").insert({
         pt_client_id: ptClientId,
@@ -45,47 +46,56 @@ export function PTSessions() {
       });
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: ["pt-sessions-today", profile.id] });
+    } catch (e: any) {
+      setError(e?.message ?? "Couldn't save. Try again.");
     } finally {
       setMarkingId(null);
     }
   }
 
-  const filtered = (clients ?? []).filter((c) => c.member.name.toLowerCase().includes(search.toLowerCase()));
-
-  if (isLoading) return <p className="text-white/50">Loading clients…</p>;
+  const sorted = [...(clients ?? [])].sort((a, b) => a.member.name.localeCompare(b.member.name));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 pb-24">
       <div>
-        <h1 className="text-2xl font-bold">Personal Training</h1>
-        <p className="text-sm text-white/50">{formatDate(todayISO(), "EEEE, dd MMM yyyy")}</p>
+        <h1 className="text-4xl leading-none">Personal training</h1>
+        <p className="mt-1 text-sm text-white/50">{formatDate(todayISO(), "EEEE, d MMMM")} · tap a client after their session</p>
       </div>
 
-      <SearchBar value={search} onChange={setSearch} placeholder="Search PT clients…" />
-
-      <div className="card divide-y divide-base-700">
-        {filtered.map(({ id, member }) => {
+      <div className="card divide-y divide-white/5 overflow-hidden">
+        {isLoading && <div className="px-4 py-8 text-center text-white/40">Loading…</div>}
+        {!isLoading && sorted.length === 0 && (
+          <div className="px-4 py-8 text-center text-white/40">No personal training clients assigned to you.</div>
+        )}
+        {sorted.map(({ id, member }) => {
           const done = doneClientIds.has(id);
-          const status = memberStatus(member.expiry_date);
           return (
-            <div key={id} className="flex items-center gap-4 px-4 py-3.5">
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold">{member.name}</div>
-                <div className="text-xs text-white/40">{member.phone}</div>
-              </div>
-              <StatusBadge status={status} />
-              <button
-                className={done ? "btn-secondary !bg-accent-green/20 !text-accent-green" : "btn-primary"}
-                disabled={done || markingId === id}
-                onClick={() => markDone(id)}
+            <button
+              key={id}
+              type="button"
+              disabled={done || markingId === id}
+              onClick={() => markDone(id)}
+              className={clsx("flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/5", done && "bg-accent-green/[0.07]")}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{member.name}</span>
+                <MemberFlags expiryDate={member.expiry_date} due={dues.get(member.id)} />
+              </span>
+              <span
+                className={clsx(
+                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold",
+                  done ? "text-base-900" : "border border-white/15 text-white/70"
+                )}
+                style={done ? { backgroundImage: "linear-gradient(110deg, #ffb15c, #f38320 45%, #e2531a)" } : undefined}
               >
-                {done ? "✓ Session Done" : markingId === id ? "Saving…" : "Mark Done"}
-              </button>
-            </div>
+                {done ? "✓ Done today" : markingId === id ? "Saving…" : "Session done"}
+              </span>
+            </button>
           );
         })}
-        {filtered.length === 0 && <div className="px-4 py-8 text-center text-white/40">No PT clients found.</div>}
       </div>
+
+      {error && <p className="text-sm text-status-expired">{error}</p>}
     </div>
   );
 }

@@ -180,7 +180,7 @@ export function AttendanceLog() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">Attendance Log</h1>
+        <h1 className="text-3xl leading-none">Attendance Log</h1>
         <button className="btn-secondary" onClick={handleExport}>
           Export to Excel
         </button>

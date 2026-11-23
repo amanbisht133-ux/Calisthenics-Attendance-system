@@ -78,7 +78,7 @@ export function MemberProfile() {
 
       <div className="card flex flex-wrap items-center justify-between gap-4 p-6">
         <div>
-          <h1 className="text-2xl font-bold">{member.name}</h1>
+          <h1 className="text-3xl leading-none">{member.name}</h1>
           <p className="text-sm text-white/50">{member.phone}</p>
           <EmailField member={member} memberId={memberId!} />
           <div className="mt-2">
