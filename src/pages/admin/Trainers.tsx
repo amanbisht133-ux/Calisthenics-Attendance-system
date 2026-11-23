@@ -7,6 +7,7 @@ import { extractFunctionErrorMessage } from "@/lib/edgeFunctions";
 import type { Branch } from "@/lib/database.types";
 
 const STAFF_DOMAIN = "@staff.calisthenicshq.app";
+const activePT = (t: any) => (t.pt_clients ?? []).filter((c: any) => !c.member?.expiry_date || c.member.expiry_date >= new Date().toLocaleDateString("en-CA")).length;
 const loginOf = (email?: string | null) => (email ?? "").replace(STAFF_DOMAIN, "");
 
 export function Trainers() {
@@ -31,7 +32,7 @@ export function Trainers() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*, trainer_branches(branch:branches(id, name)), pt_clients(id, member:members(name))")
+        .select("*, trainer_branches(branch:branches(id, name)), pt_clients(id, member:members(name, expiry_date))")
         .in("role", ["trainer", "admin"])
         .order("full_name");
       if (error) throw error;
@@ -126,7 +127,7 @@ export function Trainers() {
                 ))}
               </div>
               <p className="mt-2 text-xs text-white/40">
-                {t.pt_clients.length} PT client{t.pt_clients.length === 1 ? "" : "s"}
+                {activePT(t)} active PT client{activePT(t) === 1 ? "" : "s"}
               </p>
               <div className="mt-3 flex gap-2">
                 <button className="btn-ghost flex-1 !py-1.5 text-xs" onClick={() => setEditTrainer(t)}>

@@ -76,7 +76,11 @@ export function usePTClients(trainerId: string | undefined, branchId: string | u
         .eq("trainer_id", trainerId)
         .eq("member.branch_id", branchId);
       if (error) throw error;
-      return (data ?? []) as (PTClient & { member: MemberWithStatus })[];
+      // Only active PT clients: once the package end date has passed they drop off the list.
+      const today = new Date().toLocaleDateString("en-CA");
+      return ((data ?? []) as (PTClient & { member: MemberWithStatus })[]).filter(
+        (c) => !c.member.expiry_date || c.member.expiry_date >= today
+      );
     },
   });
 }
