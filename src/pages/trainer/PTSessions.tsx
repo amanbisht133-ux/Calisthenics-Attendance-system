@@ -33,18 +33,28 @@ export function PTSessions() {
 
   const doneClientIds = new Set((todaysSessions ?? []).map((s: any) => s.pt_client_id));
 
-  async function markDone(ptClientId: string) {
-    if (!profile || doneClientIds.has(ptClientId)) return;
+  async function toggleDone(ptClientId: string) {
+    if (!profile) return;
     setMarkingId(ptClientId);
     setError(null);
     try {
-      const { error } = await supabase.from("pt_sessions").insert({
-        pt_client_id: ptClientId,
-        trainer_id: profile.id,
-        session_date: todayISO(),
-        session_done: true,
-      });
-      if (error) throw error;
+      if (doneClientIds.has(ptClientId)) {
+        const { error } = await supabase
+          .from("pt_sessions")
+          .delete()
+          .eq("pt_client_id", ptClientId)
+          .eq("trainer_id", profile.id)
+          .eq("session_date", todayISO());
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("pt_sessions").insert({
+          pt_client_id: ptClientId,
+          trainer_id: profile.id,
+          session_date: todayISO(),
+          session_done: true,
+        });
+        if (error) throw error;
+      }
       await queryClient.invalidateQueries({ queryKey: ["pt-sessions-today", profile.id] });
     } catch (e: any) {
       setError(e?.message ?? "Couldn't save. Try again.");
@@ -59,7 +69,7 @@ export function PTSessions() {
     <div className="space-y-4 pb-24">
       <div>
         <h1 className="text-4xl leading-none">Personal training</h1>
-        <p className="mt-1 text-sm text-white/50">{formatDate(todayISO(), "EEEE, d MMMM")} · tap a client after their session</p>
+        <p className="mt-1 text-sm text-white/50">{formatDate(todayISO(), "EEEE, d MMMM")} · tap a client after their session · tap again to undo</p>
       </div>
 
       <div className="card divide-y divide-white/5 overflow-hidden">
@@ -73,8 +83,8 @@ export function PTSessions() {
             <button
               key={id}
               type="button"
-              disabled={done || markingId === id}
-              onClick={() => markDone(id)}
+              disabled={markingId === id}
+              onClick={() => toggleDone(id)}
               className={clsx("flex w-full items-center gap-3 px-4 py-3 text-left active:bg-white/5", done && "bg-accent-green/[0.07]")}
             >
               <span className="min-w-0 flex-1">

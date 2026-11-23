@@ -17,7 +17,8 @@ export function Login() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const { error } = await signIn(email, password);
+    const id = email.trim().toLowerCase();
+    const { error } = await signIn(id.includes("@") ? id : `${id}@staff.calisthenicshq.app`, password);
     setSubmitting(false);
     if (error) setError(error);
   }
@@ -34,17 +35,19 @@ export function Login() {
         <form onSubmit={handleSubmit} className="card space-y-4 p-6" autoComplete="off">
           <div>
             <label className="label" htmlFor="email">
-              Email
+              Username or email
             </label>
             <input
               id="email"
-              type="email"
+              type="text"
               required
+              autoCapitalize="none"
+              autoCorrect="off"
               autoComplete="off"
               className="input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@academy.com"
+              placeholder="username"
             />
           </div>
           <div>

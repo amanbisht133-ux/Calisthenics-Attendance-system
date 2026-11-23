@@ -1,11 +1,10 @@
-// Called from the Admin Trainers "Edit" modal. Verifies the caller is an
-// admin, then uses the service-role key to update the trainer's auth user
-// (email/password) and profile row (full_name/phone/email). If a new
-// password is set, emails the trainer their updated credentials.
+// Called from Admin → Team "Edit". Verifies the caller is an admin, then
+// uses the service-role key to update a team member's name, phone and
+// (optionally) password. No emails are sent: the admin tells the person
+// their new password directly. Academy assignment is saved from the app
+// (trainer_branches is admin-writable).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { corsHeaders } from "../_shared/cors.ts";
-import { sendEmail } from "../_shared/resend.ts";
-import { trainerCredentialsUpdatedEmail } from "../_shared/trainerEmail.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -32,55 +31,28 @@ Deno.serve(async (req) => {
       .eq("id", user.id)
       .single();
     if (profileError) throw profileError;
-    if (callerProfile.role !== "admin") throw new Error("Only admins can edit trainer accounts.");
+    if (callerProfile.role !== "admin") throw new Error("Only admins can edit team members.");
 
-    const { trainer_id, full_name, phone, email, new_password } = await req.json();
+    const { trainer_id, full_name, phone, new_password } = await req.json();
     if (!trainer_id) throw new Error("trainer_id is required.");
     if (new_password && new_password.length < 6) throw new Error("New password must be at least 6 characters.");
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { data: existing, error: fetchError } = await adminClient
-      .from("profiles")
-      .select("full_name, email")
-      .eq("id", trainer_id)
-      .single();
-    if (fetchError) throw fetchError;
-
-    // Auth user fields (email/password) live in auth.users, not profiles.
-    const authUpdate: { email?: string; password?: string } = {};
-    if (email && email !== existing.email) authUpdate.email = email;
-    if (new_password) authUpdate.password = new_password;
-    if (Object.keys(authUpdate).length > 0) {
-      const { error: authError } = await adminClient.auth.admin.updateUserById(trainer_id, {
-        ...authUpdate,
-        email_confirm: authUpdate.email ? true : undefined,
-      });
+    if (new_password) {
+      const { error: authError } = await adminClient.auth.admin.updateUserById(trainer_id, { password: new_password });
       if (authError) throw authError;
     }
 
     const profileUpdate: Record<string, unknown> = {};
     if (full_name !== undefined) profileUpdate.full_name = full_name;
     if (phone !== undefined) profileUpdate.phone = phone;
-    if (email) profileUpdate.email = email;
     if (Object.keys(profileUpdate).length > 0) {
       const { error: updateError } = await adminClient.from("profiles").update(profileUpdate).eq("id", trainer_id);
       if (updateError) throw updateError;
     }
 
-    let emailError: string | null = null;
-    if (new_password) {
-      try {
-        const targetEmail = email || existing.email;
-        const targetName = full_name || existing.full_name;
-        const { subject, html } = trainerCredentialsUpdatedEmail(targetName, targetEmail, new_password);
-        await sendEmail({ to: [targetEmail], subject, html });
-      } catch (e) {
-        emailError = (e as Error).message;
-      }
-    }
-
-    return new Response(JSON.stringify({ ok: true, emailError }), {
+    return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

@@ -9,7 +9,7 @@ const links = [
   { to: "/admin/members", label: "Members" },
   { to: "/admin/branches", label: "Branches" },
   { to: "/admin/batches", label: "Batches" },
-  { to: "/admin/trainers", label: "Trainers" },
+  { to: "/admin/trainers", label: "Team" },
   { to: "/admin/attendance", label: "Attendance Log" },
   { to: "/admin/demo-visitors", label: "Demo Visitors" },
   { to: "/admin/pt-sessions", label: "PT Sessions" },
