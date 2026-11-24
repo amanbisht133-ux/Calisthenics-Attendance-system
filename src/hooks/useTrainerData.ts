@@ -44,12 +44,14 @@ export function useAllMembers(branchId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("members")
-        .select("*, member_batches(batch_id)")
+        .select("*, member_batches(batch_id), pt_clients(id)")
         .eq("branch_id", branchId)
         .order("name");
       if (error) throw error;
       const members = (data ?? []) as (import("@/lib/database.types").Member & {
         member_batches: { batch_id: string }[];
+        pt_clients: { id: string }[] | null;
+        also_group?: boolean;
       })[];
       return members.map((m) => ({
         ...m,
@@ -57,6 +59,8 @@ export function useAllMembers(branchId: string | undefined) {
         // first assigned batch id, or null if unassigned
         batchId: m.member_batches?.[0]?.batch_id ?? null,
         batchIds: (m.member_batches ?? []).map((mb) => mb.batch_id),
+        // Pure PT client: has a PT package and is not marked as also doing group classes.
+        ptOnly: (m.pt_clients?.length ?? 0) > 0 && !m.also_group,
       }));
     },
   });

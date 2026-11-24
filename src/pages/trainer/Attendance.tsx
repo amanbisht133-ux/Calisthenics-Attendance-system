@@ -156,6 +156,7 @@ export function Attendance() {
     .filter((m) => {
       if (!batch) return false;
       if (presentIds.has(m.id)) return true;
+      if (m.ptOnly) return false;
       if (!m.batchIds.includes(batch.id)) return false;
       return daysUntil(m.expiry_date) >= -RECENTLY_EXPIRED_DAYS;
     })
@@ -164,7 +165,7 @@ export function Attendance() {
 
   // Paying members who were never given a class time: show them so they never go unseen.
   const unassigned = allMembers
-    .filter((m) => m.batchIds.length === 0 && daysUntil(m.expiry_date) >= 0 && !rosterIds.has(m.id))
+    .filter((m) => !m.ptOnly && m.batchIds.length === 0 && daysUntil(m.expiry_date) >= 0 && !rosterIds.has(m.id))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const presentCount = roster.filter((m) => presentIds.has(m.id)).length;
