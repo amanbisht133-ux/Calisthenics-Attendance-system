@@ -7,6 +7,8 @@ import { ChangePasswordModal } from "@/components/ChangePasswordModal";
 
 const links = [
   { to: "/admin", label: "Overview", end: true },
+  { to: "/admin/renewals", label: "💸 Renewals" },
+  { to: "/admin/payments-to-confirm", label: "✅ Payments to confirm" },
   { to: "/admin/members", label: "Members" },
   { to: "/admin/branches", label: "Branches" },
   { to: "/admin/batches", label: "Batches" },
