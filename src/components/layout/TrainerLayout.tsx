@@ -35,6 +35,7 @@ function TrainerLayoutInner() {
   const tabs = [
     { to: "/trainer", label: "Attendance", icon: "✓", end: true },
     ...(hasPT ? [{ to: "/trainer/pt", label: "Personal training", icon: "★", end: false }] : []),
+    { to: "/trainer/fees", label: "Fees", icon: "₹", end: false },
   ];
 
   return (

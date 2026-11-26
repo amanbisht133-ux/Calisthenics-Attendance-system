@@ -7,6 +7,7 @@ import { Login } from "@/pages/Login";
 
 import { Attendance } from "@/pages/trainer/Attendance";
 import { PTSessions } from "@/pages/trainer/PTSessions";
+import { Fees } from "@/pages/trainer/Fees";
 
 import { AdminOverview } from "@/pages/admin/AdminOverview";
 import { Members } from "@/pages/admin/Members";
@@ -22,6 +23,8 @@ import { ExceptionReport } from "@/pages/admin/ExceptionReport";
 import { Reports } from "@/pages/admin/Reports";
 import { Reminders } from "@/pages/admin/Reminders";
 import { AdminLeaderboard } from "@/pages/admin/Leaderboard";
+import { Renewals } from "@/pages/admin/Renewals";
+import { PaymentsToConfirm } from "@/pages/admin/PaymentsToConfirm";
 
 function RoleRedirect() {
   const { session, profile, loading } = useAuth();
@@ -41,6 +44,7 @@ export default function App() {
           <Route path="/trainer" element={<Attendance />} />
           <Route path="/trainer/batch/:batchId" element={<Attendance />} />
           <Route path="/trainer/pt" element={<PTSessions />} />
+          <Route path="/trainer/fees" element={<Fees />} />
           <Route path="/trainer/*" element={<Navigate to="/trainer" replace />} />
         </Route>
       </Route>
@@ -58,6 +62,8 @@ export default function App() {
           <Route path="/admin/pt-sessions" element={<PTSessionsLog />} />
           <Route path="/admin/expired" element={<ExpiredMemberships />} />
           <Route path="/admin/reminders" element={<Reminders />} />
+          <Route path="/admin/renewals" element={<Renewals />} />
+          <Route path="/admin/payments-to-confirm" element={<PaymentsToConfirm />} />
           <Route path="/admin/leaderboard" element={<AdminLeaderboard />} />
           <Route path="/admin/exceptions" element={<ExceptionReport />} />
           <Route path="/admin/reports" element={<Reports />} />
