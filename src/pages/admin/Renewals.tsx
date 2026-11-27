@@ -105,22 +105,35 @@ export function Renewals() {
 }
 
 function DueRow({ due, which, onChange }: { due: RenewalDue; which: 1 | 2; onChange: () => void }) {
-  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const text = which === 1 ? reminderMessage(due) : repeatMessage(due);
+  const markSent = () => {
+    rpc("mark_reminder_sent", { p_due_id: due.id, p_which: which }).then(onChange).catch(() => undefined);
+  };
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Older phones: fall back to a hidden textarea + execCommand
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+    markSent();
+  }
   return (
     <div className="card space-y-3 p-4">
-      <DueHeader due={due} right={<div className="mt-1 text-[11px] text-white/45">paid {Number(due.paid_so_far).toLocaleString("en-IN")}</div>} />
-      <button className="text-left text-xs text-white/50 underline-offset-2 hover:underline" onClick={() => setOpen(!open)}>
-        {open ? "Hide message" : "Show message"}
+      <DueHeader due={due} right={<div className="mt-1 text-[11px] text-white/45">{due.phone ?? "no phone"}</div>} />
+      <pre className="select-all whitespace-pre-wrap rounded-xl bg-base-700/70 p-3 font-sans text-[13px] leading-relaxed text-white/85">{text}</pre>
+      <button className="btn-primary w-full !py-3" onClick={copy}>
+        {copied ? "Copied ✓  Paste it in their chat" : which === 1 ? "Copy message" : "Copy gentle repeat"}
       </button>
-      {open && <pre className="whitespace-pre-wrap rounded-xl bg-base-700/70 p-3 font-sans text-[13px] leading-relaxed text-white/85">{text}</pre>}
-      <WaButton
-        href={waLink(due.phone, text)}
-        label={which === 1 ? "Send on WhatsApp" : "Send gentle repeat"}
-        onTap={() => {
-          rpc("mark_reminder_sent", { p_due_id: due.id, p_which: which }).then(onChange).catch(() => undefined);
-        }}
-      />
+      <WaButton href={waLink(due.phone, text)} label="Or open their WhatsApp chat" tone="secondary" onTap={markSent} />
       <DueActions due={due} onChange={onChange} />
     </div>
   );
